@@ -1,0 +1,289 @@
+/* =====================================================================
+   SubSub · Global styles (ดีไซน์ Figma) · app.css
+   รวม style ทุกหน้า ใช้ CSS variables ร่วมกัน
+   ===================================================================== */
+:root{
+  --gold:#D9A520; --gold-soft:#F0B72F;
+  --grad:linear-gradient(-45deg,#77C200 1.5%,#E5A000 99.5%);
+  --green:#34B14F; --green-line:#CDE8A0;
+  --red:#E4453A; --gray:#A3A3A3;
+  --ink:#1C1C1C; --ink-2:#6B6B6B; --ink-3:#9A9A9A;
+  --chip:#FDF0C8; --chip-ink:#7A6520;
+  --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%}
+body{
+  font-family:'Noto Sans Thai',system-ui,sans-serif;background:#E9E9EC;color:var(--ink);
+  display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;
+}
+
+/* ---------- phone shell ---------- */
+.phone{
+  width:440px;max-width:100%;height:min(920px,94vh);background:#fff;border-radius:28px;
+  overflow:hidden;position:relative;display:flex;flex-direction:column;
+  box-shadow:0 20px 60px rgba(0,0,0,.22);
+}
+.screen{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:12px}
+.screen::-webkit-scrollbar{width:0}
+
+/* ---------- top bar ---------- */
+.topbar{height:76px;flex:none;display:flex;align-items:center;gap:14px;padding:0 22px;
+  border-bottom:1px solid #EFEFEF;background:#fff}
+.topbar h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.back{width:30px;height:30px;border:0;background:none;cursor:pointer;display:grid;
+  place-items:center;border-radius:8px;color:var(--ink)}
+.back:hover{background:#F4F4F4}
+
+/* ---------- tabs (HOST/MEMBER) ---------- */
+.seg{display:flex;margin:0 24px;border-bottom:1px solid #EFEFEF}
+.seg button{flex:1;padding:13px 0;border:0;background:none;cursor:pointer;font-family:inherit;
+  font-size:13px;font-weight:600;letter-spacing:.06em;color:var(--ink-3);
+  border-bottom:2px solid transparent}
+.seg button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--gold)}
+
+.wrap{padding:20px 24px}
+
+/* ---------- group card (list) ---------- */
+.gcard{border:1.5px solid var(--green-line);border-radius:var(--radius);background:#fff;
+  padding:20px;width:100%;text-align:left;font-family:inherit;cursor:pointer;
+  display:flex;flex-direction:column;gap:16px;margin-bottom:16px}
+.gcard:hover{background:#FCFDF8}
+.gcard:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.gtop{display:flex;align-items:flex-start;gap:16px}
+.logo{width:56px;height:56px;border-radius:14px;background:#FBF3D6;display:grid;
+  place-items:center;font-size:24px;flex:none}
+.gname{flex:1;min-width:0}
+.gname b{font-size:18px;font-weight:700;display:block}
+.codechip{display:inline-flex;align-items:center;gap:9px;background:var(--chip);
+  border-radius:9px;padding:6px 11px;margin-top:9px}
+.codechip span{font-size:11px;font-weight:600;color:var(--chip-ink)}
+.codechip button{border:0;background:none;cursor:pointer;color:var(--chip-ink);
+  display:grid;place-items:center;padding:1px;border-radius:5px}
+.codechip button:hover{background:rgba(0,0,0,.08)}
+.badge{background:#E8F6E9;color:#2E7D32;border-radius:6px;padding:4px 9px;
+  font-size:10px;font-weight:600;letter-spacing:.06em;flex:none}
+.gbot{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.gbot .seats b{color:var(--ink);font-weight:700}
+.gbot .amt{font-size:16px;color:var(--ink);font-weight:700}
+
+/* ---------- buttons ---------- */
+.btn{width:100%;border:0;cursor:pointer;font-family:inherit}
+.btn.primary{display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:14px 32px;border-radius:30px;background:var(--grad);
+  box-shadow:0 4px 3.8px rgba(0,0,0,.25);color:#F4F3F5;font-size:15px;font-weight:700;line-height:22px}
+.btn.primary:hover{filter:brightness(1.04)}
+.btn.primary:active{transform:translateY(1px)}
+.btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.btn.ghost{background:#F3F3F3;color:var(--ink-2);border-radius:10px;height:46px}
+.btn.ghost:hover{background:#EAEAEA}
+.btn.danger{background:#fff;color:var(--red);border:1.5px solid var(--red);border-radius:10px;height:46px}
+.btn.danger:hover{background:#FEF2F2}
+.btn.solid-danger{background:var(--red);color:#fff;border-radius:10px;height:46px}
+.btn.solid-danger:hover{filter:brightness(1.06)}
+
+/* ---------- floating action button ---------- */
+.fab{position:absolute;right:22px;bottom:100px;z-index:15;display:flex;align-items:center;gap:8px;
+  padding:14px 26px;border:0;cursor:pointer;font-family:inherit;border-radius:30px;
+  background:var(--grad);box-shadow:0 6px 14px rgba(0,0,0,.28);
+  color:#F4F3F5;font-size:14px;font-weight:700;line-height:22px;white-space:nowrap}
+.fab svg{flex:none}
+.fab:hover{filter:brightness(1.05)}
+.fab:active{transform:translateY(1px)}
+
+/* ---------- nav ---------- */
+.nav{flex:none;height:82px;border-top:1px solid #EFEFEF;background:#fff;display:flex;padding-top:6px}
+.nav button{flex:1;border:0;background:none;cursor:pointer;font-family:inherit;display:flex;
+  flex-direction:column;align-items:center;gap:3px;color:var(--ink-3);font-size:12px;font-weight:500}
+.nav button[aria-current="page"]{color:var(--gold)}
+
+/* ---------- empty state ---------- */
+.empty{flex:1;display:flex;align-items:center;justify-content:center;
+  padding:40px 48px;text-align:center;min-height:440px}
+.empty p{font-size:14px;color:#C4C4C8;line-height:1.7}
+
+/* ---------- skeleton ---------- */
+.skel{background:linear-gradient(90deg,#EEE 25%,#F6F6F6 50%,#EEE 75%);background-size:200% 100%;
+  animation:sh 1.2s infinite;border-radius:8px}
+@keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
+.skel-card{border:1.5px solid #EEE;border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.skel-row{display:flex;gap:16px;align-items:center;margin-bottom:16px}
+.skel.logo{width:56px;height:56px;border-radius:14px}
+.skel.line{height:14px}
+
+/* ---------- toast ---------- */
+.toast{position:absolute;left:24px;right:24px;bottom:26px;z-index:30;background:#232323;color:#fff;
+  border-radius:12px;padding:14px 18px;font-size:13px;line-height:1.5;
+  opacity:0;transform:translateY(10px);transition:.22s;pointer-events:none}
+.toast.on{opacity:1;transform:translateY(0)}
+
+/* ---------- form (create/edit) ---------- */
+.form{padding:20px 27px 0}
+.form h2{font-size:22px;font-weight:700;line-height:1.35;margin-bottom:22px;color:var(--gold)}
+.field{margin-bottom:18px}
+.field>label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}
+.field input[type=text],.field input[type=number],.field input[type=date]{
+  width:100%;height:44px;border:1.5px solid #E4E4E4;border-radius:10px;padding:0 14px;
+  font-family:inherit;font-size:14px;background:#fff;color:var(--ink)}
+.field input::placeholder{color:#C4C4C4}
+.field input:focus{outline:2px solid var(--gold);outline-offset:1px;border-color:transparent}
+.field input.invalid{border-color:var(--red)}
+.hint{font-size:10.5px;color:var(--ink-3);margin-top:7px;line-height:1.6}
+.err{font-size:11px;color:var(--red);margin-top:6px}
+.inputmoney{position:relative}
+.inputmoney input{padding-right:52px}
+.inputmoney span{position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  font-size:13px;color:var(--ink-3);font-weight:500;pointer-events:none}
+.toggle{display:flex;background:#F3F3F3;border-radius:10px;padding:4px;gap:4px}
+.toggle button{flex:1;height:38px;border:0;border-radius:7px;background:none;cursor:pointer;
+  font-family:inherit;font-size:14px;font-weight:600;color:var(--ink-2)}
+.toggle button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.chips{display:flex;flex-wrap:wrap;gap:9px}
+.chip{border:1.5px solid #E4E4E4;background:#fff;border-radius:9px;padding:9px 16px;
+  font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink-2)}
+.chip[aria-pressed="true"]{border-color:var(--gold);background:#FDF7E4;color:var(--chip-ink);font-weight:600}
+.subhead{font-size:14px;font-weight:700;margin:26px 0 14px}
+
+/* ---------- detail: hero ---------- */
+.card{border:1.5px solid var(--green-line);border-radius:var(--radius);background:#fff;padding:24px}
+.hero{display:flex;flex-direction:column;gap:24px}
+.hero-top{display:flex;align-items:center;gap:16px}
+.hero .logo{width:62px;height:62px;font-size:28px}
+.hero-name{font-size:26px;font-weight:700;line-height:1.2}
+.status{display:flex;align-items:center;gap:8px;margin-top:5px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+.status span{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink-2)}
+.hero-bot{display:flex;align-items:flex-end;justify-content:space-between}
+.label{font-size:11px;letter-spacing:.08em;color:var(--ink-2);font-weight:500}
+.price{display:flex;align-items:baseline;gap:6px;margin-top:4px}
+.price b{font-size:34px;font-weight:700;letter-spacing:-.02em}
+.price i{font-size:14px;font-style:normal;color:var(--ink-2);font-weight:500}
+.hero .codechip{background:var(--chip);border-radius:10px;padding:9px 14px}
+.hero .codechip span{font-size:13px}
+
+/* ---------- detail: due banner ---------- */
+.due-banner{display:flex;align-items:center;gap:8px;margin-top:4px;padding:11px 14px;
+  border-radius:10px;font-size:12.5px;font-weight:600}
+.due-banner svg{flex:none}
+.due-banner.ok{background:#F1F7EA;color:#4E7A1E}
+.due-banner.soon{background:#FBF3D6;color:#8A6D12}
+.due-banner.today{background:#FEF0E7;color:#C4611B}
+.due-banner.overdue{background:#FDECEA;color:#C0392B}
+
+/* ---------- detail: sections + member rows ---------- */
+.sechead{display:flex;align-items:center;justify-content:space-between;padding:0 31px;margin:30px 0 14px}
+.sechead h2{font-size:20px;font-weight:600}
+.tag{background:#FBF3D6;color:var(--chip-ink);border-radius:8px;padding:5px 13px;
+  font-size:11px;font-weight:600;letter-spacing:.08em}
+.rows{padding:0 31px;display:flex;flex-direction:column;gap:12px}
+.row{border:1.5px solid var(--green-line);border-radius:14px;background:#fff;padding:16px;
+  display:flex;align-items:center;gap:16px;width:100%;text-align:left;font-family:inherit}
+.row.tappable{cursor:pointer}
+.row.tappable:hover{background:#FCFDF8}
+.row.muted{border-color:#EBEBEB;background:#FAFAFA}
+.av{width:48px;height:48px;border-radius:50%;flex:none;background:#E8E8E8;display:grid;
+  place-items:center;color:#8A8A8A;overflow:hidden}
+.av img{width:100%;height:100%;object-fit:cover}
+.av.filled{background:#3F3F46}
+.who{flex:1;min-width:0}
+.who b{display:block;font-size:15px;font-weight:600}
+.who span{display:block;font-size:11px;color:var(--ink-2);margin-top:3px}
+.pill{flex:none;border:0;border-radius:9px;padding:9px 14px;min-width:106px;font-family:inherit;
+  font-size:12px;font-weight:600;color:#fff;display:flex;align-items:center;justify-content:center;gap:6px}
+.pill.paid{background:var(--green)}
+.pill.review{background:var(--gold-soft);cursor:pointer}
+.pill.review:hover{filter:brightness(1.06)}
+.pill.unpaid{background:var(--red);cursor:pointer}
+.pill.unpaid:hover{filter:brightness(1.06)}
+.pill.leaving{background:var(--gray)}
+.note{display:flex;gap:12px;padding:18px 39px 0;color:var(--ink-3)}
+.note svg{flex:none;margin-top:2px}
+.note p{font-size:10.5px;line-height:1.65}
+.actions{display:flex;gap:14px;padding:26px 41px 20px}
+.actions .btn{flex:1}
+
+/* ---------- modal ---------- */
+.veil{position:absolute;inset:0;background:rgba(20,20,20,.55);display:flex;align-items:center;
+  justify-content:center;padding:26px;z-index:20}
+.modal{background:#fff;border-radius:18px;width:100%;max-height:100%;overflow-y:auto;padding:24px;
+  animation:pop .18s ease-out}
+@keyframes pop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal h3{font-size:17px;font-weight:700;margin-bottom:8px}
+.modal p.sub{font-size:12.5px;color:var(--ink-2);line-height:1.65;margin-bottom:20px}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
+.x{border:0;background:none;cursor:pointer;color:var(--ink-3);padding:4px;border-radius:6px;flex:none}
+.x:hover{background:#F4F4F4;color:var(--ink)}
+.slip{background:#EFE7DA;border-radius:10px;padding:20px;margin-bottom:18px;display:flex;flex-direction:column;gap:8px}
+.slip .sl{height:7px;border-radius:4px;background:#D3C6B2}
+.slip .sl.s{width:45%}.slip .sl.m{width:70%}.slip .sl.l{width:100%}
+.slipmeta{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.due{background:#FBF7EA;border-radius:10px;padding:14px 16px;margin-bottom:18px;display:flex;
+  align-items:center;justify-content:space-between}
+.due span{font-size:12px;color:var(--ink-2);font-weight:500}
+.due b{font-size:17px;font-weight:700}
+.modal-actions{display:flex;flex-direction:column;gap:10px}
+.modal-actions.two{flex-direction:row}
+.modal-actions.two .btn{flex:1}
+.modal-actions .btn.primary{padding:0;height:46px;border-radius:10px}
+.reasons{display:flex;flex-direction:column;gap:9px;margin-bottom:18px}
+.reason{display:flex;align-items:center;gap:11px;border:1.5px solid #E4E4E4;border-radius:10px;
+  padding:13px 15px;cursor:pointer;font-family:inherit;font-size:13.5px;background:#fff;text-align:left;width:100%}
+.reason[aria-pressed="true"]{border-color:var(--gold);background:#FDF7E4}
+.reason .rd{width:18px;height:18px;border-radius:50%;border:2px solid #CBCBCB;flex:none}
+.reason[aria-pressed="true"] .rd{border-color:var(--gold);background:var(--gold);box-shadow:inset 0 0 0 3px #fff}
+
+/* ---------- test panel (ชั่วคราว) ---------- */
+.testpanel{margin:8px 27px 28px;border:1.5px dashed #C9B36B;border-radius:12px;background:#FCFAF2;padding:14px}
+.testpanel-h{font-size:11px;font-weight:700;color:#9A7D1E;margin-bottom:10px}
+.testpanel button{display:block;width:100%;text-align:left;margin-bottom:8px;padding:11px 14px;
+  border:1px solid #E4D9B0;border-radius:9px;background:#fff;color:#6B5518;
+  font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.testpanel button:last-child{margin-bottom:0}
+.testpanel button:hover{background:#FBF7EA;border-color:#C9B36B}
+
+.hidden{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* =====================================================================
+   ปฏิทินเลือกวัน (DatePicker) — ดีไซน์ Figma แบบ iOS
+   วาง CSS นี้ต่อท้าย app.css
+   ===================================================================== */
+.dp{position:relative}
+
+/* ช่องที่กดเปิดปฏิทิน (หน้าตาเหมือน input อื่น) */
+.dp-input{width:100%;height:44px;border:1.5px solid #E4E4E4;border-radius:10px;
+  padding:0 14px;font-family:inherit;font-size:14px;background:#fff;color:var(--ink);
+  display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.dp-input.placeholder{color:#C4C4C4}
+.dp-input.invalid{border-color:var(--red)}
+.dp-input svg{color:var(--ink-3);flex:none}
+.dp-input:hover{border-color:#D0D0D0}
+
+/* กล่องปฏิทินลอย */
+.dp-pop{position:absolute;top:52px;left:0;z-index:40;width:330px;max-width:92vw;
+  background:#fff;border-radius:20px;padding:20px;
+  box-shadow:0 12px 40px rgba(0,0,0,.18);border:1px solid #F0F0F0;
+  animation:dp-pop .16s ease-out}
+@keyframes dp-pop{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* header: เดือน/ปี + ปุ่มเลื่อน */
+.dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.dp-sel{display:flex;gap:8px}
+.dp-sel select{border:0;background:none;font-family:inherit;font-size:16px;font-weight:700;
+  color:var(--ink);cursor:pointer;padding:4px 2px;appearance:none;-webkit-appearance:none}
+.dp-sel select:focus{outline:none}
+.dp-nav{display:flex;gap:4px}
+.dp-nav button{width:32px;height:32px;border:0;background:none;cursor:pointer;border-radius:8px;
+  display:grid;place-items:center;color:var(--ink-2)}
+.dp-nav button:hover{background:#F4F4F4}
+
+/* แถวชื่อวัน Sun-Sat */
+.dp-dow{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:6px}
+.dp-dow div{text-align:center;font-size:12px;font-weight:500;color:var(--ink-3);padding:6px 0}
+
+/* ตารางวันที่ */
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.dp-day{aspect-ratio:1;border:0;background:none;cursor:pointer;font-family:inherit;
+  font-size:15px;color:var(--ink);border-radius:50%;display:grid;place-items:center}
+.dp-day:hover{background:#F1F1F1}
+.dp-day.on{background:#0A84FF;color:#fff;font-weight:600}
+.dp-day.on:hover{background:#0A84FF}
