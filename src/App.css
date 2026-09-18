@@ -287,3 +287,58 @@ body{
 .dp-day:hover{background:#F1F1F1}
 .dp-day.on{background:#0A84FF;color:#fff;font-weight:600}
 .dp-day.on:hover{background:#0A84FF}
+
+/* =====================================================================
+   Dashboard (หน้าภาพรวม) — ดีไซน์ Figma
+   วาง CSS นี้ต่อท้าย app.css
+   ===================================================================== */
+
+/* การ์ดสรุป (gradient เขียว-ทอง) */
+.dash-hero{border-radius:18px;padding:22px 24px;color:#fff;margin-bottom:20px;
+  background:linear-gradient(120deg,#8DC03A 0%,#C9A21C 100%)}
+.dash-hero-label{font-size:14px;font-weight:500;opacity:.95}
+.dash-hero-amount{font-size:34px;font-weight:700;letter-spacing:-.01em;margin-top:4px}
+.dash-hero-amount span{font-size:16px;font-weight:500}
+.dash-hero-divider{height:1px;background:rgba(255,255,255,.35);margin:16px 0 12px}
+.dash-hero-year{font-size:13px;font-weight:500;opacity:.95}
+.dash-hero-year b{font-weight:700}
+
+/* การ์ดทั่วไป */
+.dash-card{border:1.5px solid var(--green-line);border-radius:16px;background:#fff;
+  padding:20px;margin-bottom:20px}
+.dash-card-title{font-size:14px;font-weight:700;color:var(--chip-ink);margin-bottom:16px}
+
+/* แถบหมวดหมู่ */
+.dash-bar-row{margin-bottom:14px}
+.dash-bar-row:last-child{margin-bottom:0}
+.dash-bar-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;
+  font-size:13px;color:var(--ink)}
+.dash-bar-val{font-size:12px;color:var(--ink-2);font-weight:600}
+.dash-bar-track{height:9px;border-radius:6px;background:#F0F0F0;overflow:hidden}
+.dash-bar-fill{height:100%;border-radius:6px;transition:width .5s ease}
+
+/* โดนัทชาร์ต */
+.dash-donut{position:relative;width:180px;height:180px;margin:8px auto 20px}
+.dash-donut-center{position:absolute;inset:0;display:grid;place-items:center}
+.dash-donut-center b{font-size:30px;font-weight:700;color:var(--ink)}
+.dash-legend{display:flex;justify-content:space-around;flex-wrap:wrap;gap:10px}
+.dash-legend-item{text-align:center}
+.dash-legend-pct{font-size:20px;font-weight:700}
+.dash-legend-lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);margin-top:2px}
+.dash-legend-lbl i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+/* ปุ่มสลับ รายเดือน/รายปี ในการ์ด hero */
+.dash-hero-top{display:flex;align-items:center;justify-content:space-between}
+.dash-toggle{display:inline-flex;background:rgba(0,0,0,.12);border-radius:11px;padding:2px}
+.dash-toggle button{border:0;background:none;cursor:pointer;font-family:inherit;
+  font-size:11px;font-weight:700;padding:4px 11px;border-radius:9px;color:#fff;transition:.2s}
+.dash-toggle button[aria-pressed="true"]{background:#fff;color:#2E7D32}
+ 
+/* หัวการ์ดที่มีข้อความขวา (กราฟย้อนหลัง) */
+.dash-card-head{display:flex;align-items:baseline;justify-content:space-between}
+.dash-card-sub{font-size:11px;color:var(--ink-3)}
+ 
+/* จุดสีหน้าชื่อหมวดในแถบ */
+.dot-cat{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dash-bar-head span{display:flex;align-items:center}
+ 

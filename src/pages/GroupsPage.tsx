@@ -4,7 +4,7 @@
    ===================================================================== */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DB } from '../db';
+import { DB, priceInfo } from '../db';
 import type { GroupRow, Role } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht } from '../ui';
 
@@ -98,7 +98,7 @@ export default function GroupsPage() {
                 </div>
                 <div className="gbot">
                   <span className="seats">สมาชิกปัจจุบัน <b>{g.memberCount}/{g.max_slots}</b> คน</span>
-                  <span className="amt">{baht(g.total_price)} บาท</span>
+                  <span className="amt">{baht(priceInfo(g).now)} บาท</span>
                 </div>
               </div>
             ))}

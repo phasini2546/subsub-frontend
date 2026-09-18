@@ -4,7 +4,7 @@
    ===================================================================== */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DB, deriveStatus } from '../db';
+import { DB, deriveStatus, priceInfo } from '../db';
 import type { GroupDetail, MemberWithDetail, BillingInfo, UiStatus } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht, baht2 } from '../ui';
 
@@ -39,6 +39,7 @@ export default function DetailPage() {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [delGroup, setDelGroup] = useState(false);
+  const [manage, setManage] = useState<MemberWithDetail | null>(null);  // เมนูจัดการสมาชิก (ดูสลิป/นำออก)
 
   const reload = useCallback(async () => {
     const data = await DB.getGroup(id);
@@ -60,6 +61,12 @@ export default function DetailPage() {
 
   const seatsUsed = g.members.filter(m => m.status === 'Active').length;
   const freeSeats = g.max_slots - seatsUsed;
+  const pInfo = priceInfo(g);   // ราคาที่มีผลตอนนี้ + ราคาที่ตั้งไว้ให้มีผลเดือนหน้า (ถ้ามี)
+  const thMonthLabel = (key: string) => {
+    const [y, m] = key.split('-').map(Number);
+    const MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    return `${MON[m - 1]} ${y + 543}`;
+  };
 
   /* ---------- actions ---------- */
   const copyCode = () => { navigator.clipboard?.writeText(g.invite_code); show('คัดลอกรหัส #' + g.invite_code + ' แล้ว ส่งให้เพื่อนทาง LINE ได้เลย'); };
@@ -92,6 +99,16 @@ export default function DetailPage() {
     setTimeout(() => navigate('/groups'), 900);
   };
 
+  /* โฮสต์นำสมาชิกออกจากกลุ่มเอง (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
+  const doRemoveMember = async () => {
+    if (!manage) return;
+    const name = manage.user.display_name;
+    await DB.removeMember(g.group_id, manage.user_id);
+    setManage(null);
+    await reload();
+    show('นำ ' + name + ' ออกจากกลุ่มแล้ว — ที่นั่งว่างสำหรับคนใหม่ แจ้งทาง LINE เรียบร้อย');
+  };
+
   /* ---------- test buttons ---------- */
   const simJoin = async () => { await DB.createJoinRequest(g.group_id, 'ผู้ขอเข้า ' + String.fromCharCode(65 + g.requests.length + g.members.length)); await reload(); show('มีคนขอเข้ากลุ่มใหม่ (จำลอง) — เลื่อนลงไปดู “คำขอเข้า”'); };
   const simMonthly = async () => {
@@ -99,6 +116,13 @@ export default function DetailPage() {
     if (!t) { show('ไม่มีสมาชิกที่ค้างจ่ายรอบนี้ — ลองกด “ขึ้นรอบบิลใหม่” ก่อน'); return; }
     await DB.payMonthly(g.group_id, t.user_id); await reload();
     show(t.user.display_name + ' แนบสลิปรอบเดือนแล้ว — กด “ตรวจสอบสลิป” เพื่ออนุมัติ');
+  };
+  
+  const simLeave = async () => {
+  const t = g.members.find(m => m.role !== 'Host' && !m.leaving && !m.left_date);
+  if (!t) { show('ไม่มีสมาชิกให้ทดสอบขอออก — ต้องมีสมาชิก (ไม่ใช่โฮสต์) ในกลุ่มก่อน'); return; }
+  await DB.requestLeave(g.group_id, t.user_id); await reload();
+  show(t.user.display_name + ' กดขอออกแล้ว — รอบนี้ไม่ต้องจ่าย เดือนหน้ากด "ขึ้นรอบบิลใหม่" จะถูกนำออกอัตโนมัติ');
   };
   const simCycle = async () => { const c = await DB.startNewCycle(g.group_id); await reload(); show(`ขึ้นรอบบิลที่ ${c?.period} แล้ว — สมาชิกทุกคนกลับเป็น “ยังไม่ชำระ” (ยอด ${baht(c?.price ?? 0)} บาท/คน)`); };
 
@@ -135,7 +159,7 @@ export default function DetailPage() {
             <div className="hero-bot">
               <div>
                 <div className="label">ค่าบริการต่อเดือน</div>
-                <div className="price"><b>{baht(g.total_price)}</b><i>บาท</i></div>
+                <div className="price"><b>{baht(pInfo.now)}</b><i>บาท</i></div>
               </div>
               <div className="codechip">
                 <span>#{g.invite_code}</span>
@@ -147,20 +171,32 @@ export default function DetailPage() {
                 {Icon.cal}<span>{dueMsg(bill)}</span>
               </div>
             )}
+            {pInfo.upcoming && (
+              <div className="due-banner soon">
+                {Icon.info}<span>ราคาใหม่ {baht(pInfo.upcoming.price)} บาท{pInfo.upcoming.slots !== pInfo.slotsNow ? ` · สมาชิกสูงสุด ${pInfo.upcoming.slots} คน` : ''} จะมีผล {thMonthLabel(pInfo.upcoming.from)}</span>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="sechead"><h2>สมาชิก (Members) {seatsUsed}/{g.max_slots}</h2></div>
         <div className="rows">
           {g.members.map(m => {
+            if (m.role === 'Host') {
+             return (
+            <div className="row" key={m.member_id}>
+              {avatar(m, true)}
+              <div className="who"><b>{m.user.display_name}</b><span>โฮสต์ · ตัดบัตรอัตโนมัติ</span></div>
+              <span className="pill paid">โฮสต์</span>
+            </div>
+            );
+            }
             const st = deriveStatus(m);
             const s = UI_STATUS[st];
             const filled = st === 'paid' || st === 'review';
-            const tap = st === 'paid';
-            const RowTag = tap ? 'button' : 'div';
             return (
-              <RowTag key={m.member_id} className={`row ${tap ? 'tappable' : ''} ${st === 'leaving' ? 'muted' : ''}`}
-                {...(tap ? { onClick: () => setApproved(m) } : {})}>
+              <div key={m.member_id} className={`row tappable ${st === 'leaving' ? 'muted' : ''}`}
+                onClick={() => setManage(m)}>
                 {avatar(m, filled)}
                 <div className="who"><b>{m.user.display_name}</b><span>{s.text}</span></div>
                 {st === 'review' ? (
@@ -170,7 +206,7 @@ export default function DetailPage() {
                 ) : (
                   <span className={'pill ' + s.cls}>{s.pill}</span>
                 )}
-              </RowTag>
+              </div>
             );
           })}
           {freeSeats > 0 && (
@@ -201,7 +237,7 @@ export default function DetailPage() {
 
         <div className="actions">
           <button className="btn danger" onClick={() => setDelGroup(true)}>ลบรายการ</button>
-          <button className="btn primary" style={{ borderRadius: 10, height: 46 }} onClick={() => show('หน้าแก้ไขข้อมูล — จะทำในสเต็ปถัดไป')}>แก้ไขข้อมูล</button>
+          <button className="btn primary" style={{ borderRadius: 10, height: 46 }} onClick={() => navigate('/group/' + g.group_id + '/edit')}>แก้ไขข้อมูล</button>
         </div>
 
         {/* แผงทดสอบชั่วคราว */}
@@ -210,6 +246,7 @@ export default function DetailPage() {
           <button onClick={simJoin}>มีคนขอเข้ากลุ่ม + แนบสลิป (แรกเข้า)</button>
           <button onClick={simMonthly}>สมาชิกจ่ายค่าบริการรอบเดือน + แนบสลิป</button>
           <button onClick={simCycle}>ขึ้นรอบบิลใหม่ (reset สถานะสมาชิก)</button>
+          <button onClick={simLeave}>สมาชิกกดขอออก (ประสงค์ออก)</button>
         </div>
       </main>
 
@@ -290,6 +327,30 @@ export default function DetailPage() {
             <div className="modal-actions two">
               <button className="btn ghost" onClick={() => setDelGroup(false)}>ยกเลิก</button>
               <button className="btn solid-danger" onClick={doDeleteGroup}>ลบกลุ่ม</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== modal: จัดการสมาชิก (ดูสลิป / นำออกจากกลุ่ม) ===== */}
+      {manage && (
+        <div className="veil" onClick={e => { if (e.target === e.currentTarget) setManage(null); }}>
+          <div className="modal">
+            <div className="modal-head"><h3>จัดการสมาชิก</h3>
+              <button className="x" onClick={() => setManage(null)} aria-label="ปิด">{Icon.close}</button></div>
+            <div className="slipmeta">
+              <div className="av filled" />
+              <div className="who"><b>{manage.user.display_name}</b><span>{UI_STATUS[deriveStatus(manage)].text}</span></div>
+            </div>
+            {deriveStatus(manage) === 'paid' && manage.currentPayment && (
+              <button className="btn ghost" onClick={() => { const t = manage; setManage(null); setApproved(t); }}>ดูสลิปที่อนุมัติแล้ว</button>
+            )}
+            <p className="sub" style={{ marginTop: 10 }}>
+              นำออกจากกลุ่มแล้วที่นั่งจะว่างทันที สมาชิกจะไม่เห็นกลุ่มนี้อีก — ประวัติการจ่ายยังถูกเก็บไว้เพื่อคิดยอดย้อนหลัง<br />
+              เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
+            </p>
+            <div className="modal-actions">
+              <button className="btn danger" onClick={doRemoveMember}>นำออกจากกลุ่ม</button>
             </div>
           </div>
         </div>

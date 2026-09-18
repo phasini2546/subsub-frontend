@@ -12,12 +12,16 @@ import './app.css';
 import GroupsPage from './pages/GroupsPage';
 import CreatePage from './pages/CreatePage';
 import DetailPage from './pages/DetailPage';
+import EditPage from './pages/EditPage';
+import DashboardPage from './pages/DashboardPage';
 
 const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/groups" replace /> },
   { path: '/groups', element: <GroupsPage /> },
   { path: '/create', element: <CreatePage /> },
   { path: '/group/:id', element: <DetailPage /> },
+  { path: '/group/:id/edit', element: <EditPage /> },
+  { path: '/dashboard', element: <DashboardPage /> },
 ]);
 
 /* ---------------------------------------------------------------------

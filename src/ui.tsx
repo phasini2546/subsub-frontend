@@ -3,6 +3,7 @@
    ไอคอน SVG + hook แสดง toast — ใช้ร่วมกันทุกหน้า
    ===================================================================== */
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 /* ---------- ไอคอน SVG (เหมือนดีไซน์ Figma) ---------- */
 export const Icon = {
@@ -34,17 +35,18 @@ export const Icon = {
 
 /* ---------- nav bar (บริการ / กลุ่ม / ภาพรวม) ---------- */
 export function NavBar({ current = 'group' }: { current?: string }) {
+  const navigate = useNavigate();
   return (
     <nav className="nav">
       <button aria-current={current === 'service' ? 'page' : undefined}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
         บริการ
       </button>
-      <button aria-current={current === 'group' ? 'page' : undefined}>
+      <button aria-current={current === 'group' ? 'page' : undefined} onClick={() => navigate('/groups')}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="9" cy="8" r="3.2" /><circle cx="17" cy="9" r="2.4" /><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" /><path d="M17 14c2.2 0 3.8 1.5 3.8 3.5" /></svg>
         กลุ่ม
       </button>
-      <button aria-current={current === 'overview' ? 'page' : undefined}>
+      <button aria-current={current === 'overview' ? 'page' : undefined} onClick={() => navigate('/dashboard')}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 20V10M12 20V4M19 20v-7" /></svg>
         ภาพรวม
       </button>

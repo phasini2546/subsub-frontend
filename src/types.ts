@@ -35,6 +35,7 @@ export interface Group {
   bankDT: string;
   _billing_cycle?: string;  // [M3] ยังไม่มีใน schema
   _deposit?: string;        // [M6] ยังไม่มีใน schema
+  _pricing_history?: { from: string; price: string; max_slots: number }[];  // [M7] ประวัติราคา/ช่อง (from='YYYY-MM' เดือนแรกที่มีผล)
 }
 
 /* ---------- ตาราง Group_Member ---------- */
@@ -46,6 +47,7 @@ export interface Member {
   role: Role;
   status: MemberStatus;
   leaving?: boolean;        // [M4] ธงชั่วคราวแทน leave_requested_at
+  left_date?: string | null;  // [ใหม่] วันที่ออกจากกลุ่ม — null=ยังอยู่ (ทาง B)
 }
 
 /* ---------- ตาราง Payment ---------- */
@@ -107,4 +109,22 @@ export interface CreateGroupInput {
   category: Category;
   bankDT: string;
   billing_cycle: string;
+}
+
+/* ---------- ตาราง Subscription (รายจ่ายส่วนตัว) ---------- */
+export interface Subscription {
+  sub_id: string;
+  user_id: string;
+  service_name: string;
+  price: string;
+  billing_date: string;      // วันเริ่มบันทึก
+  category: Category;
+  end_date?: string | null;  // [ใหม่] วันที่ลบ/ยกเลิก — null=ยังบันทึกอยู่ (ทาง B)
+}
+
+/* ---------- ข้อมูลสรุปสำหรับ Dashboard ---------- */
+export interface DashboardData {
+  monthTotal: number;                              // ค่าใช้จ่ายเดือนนี้ (รวมทุกหมวด)
+  yearTotal: number;                               // ค่าใช้จ่ายรายปี (นับเดือนสะสม)
+  byCategory: { category: Category; label: string; amount: number; percent: number }[];
 }
