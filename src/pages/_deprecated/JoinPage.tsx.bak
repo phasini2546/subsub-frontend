@@ -1,0 +1,75 @@
+/* =====================================================================
+   SubSub · หน้าเข้าร่วมกลุ่ม (Member) · pages/JoinPage.tsx
+   ---------------------------------------------------------------------
+   สมาชิกกรอกรหัสเชิญจากโฮสต์ → DB.joinByCode → ส่งคำขอเข้ากลุ่ม
+   (สถานะ Pending รอโฮสต์อนุมัติในหน้า Detail) — จุดเชื่อม Host ↔ Member
+   ===================================================================== */
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { DB } from '../db';
+import { Icon, useToast } from '../ui';
+
+const STEPS = [
+  'ติดต่อหัวหน้ากลุ่ม (Host) ที่คุณต้องการร่วมทีม',
+  'ขอรหัสคำเชิญจากเมนู “แชร์รหัส” ของโฮสต์',
+  'นำรหัสมากรอกในช่องด้านบนและกดปุ่มเข้าร่วม',
+];
+
+export default function JoinPage() {
+  const navigate = useNavigate();
+  const { show, node: toast } = useToast();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!code.trim()) { setError('กรุณากรอกรหัสคำเชิญก่อนเข้าร่วม'); return; }
+    setBusy(true);
+    const res = await DB.joinByCode(code);
+    setBusy(false);
+    if (res === 'notfound') { setError('ไม่พบรหัสนี้ กรุณาตรวจสอบความถูกต้องแล้วลองใหม่อีกครั้ง'); return; }
+    if (res === 'full') { setError('ขออภัย ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'); return; }
+    if (res === 'already') { setError('คุณอยู่ในกลุ่มนี้อยู่แล้ว'); return; }
+    show('ส่งคำขอเข้ากลุ่มเรียบร้อย โปรดรอการยืนยันจากโฮสต์');
+    setTimeout(() => navigate('/groups'), 1000);
+  }
+
+  return (
+    <div className="phone">
+      <header className="topbar">
+        <button className="back" onClick={() => navigate('/groups')} aria-label="ย้อนกลับ">{Icon.back}</button>
+        <h1>เข้าร่วมกลุ่ม</h1>
+      </header>
+
+      <main className="screen">
+        <div className="form">
+          <h2>กรอกรหัสคำเชิญ<br />เพื่อเข้าร่วมกลุ่ม</h2>
+
+          <div className="field" data-field="code">
+            <label>รหัสคำเชิญ</label>
+            <input type="text" value={code} placeholder="เช่น SUB-XXXX"
+              className={error ? 'invalid' : ''}
+              onChange={e => { setCode(e.target.value); if (error) setError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
+            {error && <p className="err">{error}</p>}
+          </div>
+
+          <button type="button" className="btn primary" disabled={busy} onClick={submit}>
+            {Icon.add}{busy ? 'กำลังส่งคำขอ…' : 'เข้าร่วมเลย'}
+          </button>
+
+          <div className="note" style={{ padding: '22px 0 0' }}>
+            {Icon.info}
+            <div>
+              <p style={{ fontWeight: 700, color: 'var(--ink)', fontSize: 13, marginBottom: 8 }}>วิธีรับรหัสจากโฮสต์</p>
+              <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.9 }}>
+                {STEPS.map((s, i) => <li key={i} style={{ fontSize: 12 }}>{s}</li>)}
+              </ol>
+            </div>
+          </div>
+        </div>
+      </main>
+      {toast}
+    </div>
+  );
+}
