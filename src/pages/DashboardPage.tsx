@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { DB } from '../db';
 import type { DashboardData, Category } from '../types';
-import { NavBar, useToast, baht, baht2 } from '../ui';
+import { NavBar, useToast, baht, baht2, BrandLogo } from '../ui';
 
 
 /* สีแต่ละหมวด (คงตามดีไซน์ Figma) */
@@ -42,7 +42,7 @@ export default function DashboardPage() {
   if (loading || !data) {
     return (
       <div className="phone">
-        <header className="topbar"><h1>ภาพรวม</h1></header>
+        <header className="topbar"><BrandLogo /></header>
         <main className="screen"><div className="wrap">
           <div className="skel" style={{ height: 140, marginBottom: 20 }} />
           <div className="skel" style={{ height: 120 }} />
@@ -59,7 +59,7 @@ export default function DashboardPage() {
 
   return (
     <div className="phone">
-      <header className="topbar"><h1>ภาพรวม</h1></header>
+      <header className="topbar"><BrandLogo /></header>
 
       <main className="screen">
         <div className="wrap">

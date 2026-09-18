@@ -4,6 +4,12 @@
    ===================================================================== */
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import logoUrl from './assets/logo.png';
+
+/* ---------- โลโก้แบรนด์ (มุมซ้ายบนของหน้าหลัก) ---------- */
+export function BrandLogo() {
+  return <img src={logoUrl} alt="SubSub" className="brand-logo" />;
+}
 
 /* ---------- ไอคอน SVG (เหมือนดีไซน์ Figma) ---------- */
 export const Icon = {

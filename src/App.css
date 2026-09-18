@@ -31,6 +31,7 @@ body{
 .topbar{height:76px;flex:none;display:flex;align-items:center;gap:14px;padding:0 22px;
   border-bottom:1px solid #EFEFEF;background:#fff}
 .topbar h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.brand-logo{height:42px;width:auto;display:block}
 .back{width:30px;height:30px;border:0;background:none;cursor:pointer;display:grid;
   place-items:center;border-radius:8px;color:var(--ink)}
 .back:hover{background:#F4F4F4}
@@ -341,4 +342,3 @@ body{
 /* จุดสีหน้าชื่อหมวดในแถบ */
 .dot-cat{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
 .dash-bar-head span{display:flex;align-items:center}
- 

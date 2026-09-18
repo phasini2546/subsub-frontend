@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DB, priceInfo } from '../db';
 import type { GroupRow, Role } from '../types';
-import { Icon, NavBar, useToast, CATEGORY_ICON, baht } from '../ui';
+import { Icon, NavBar, useToast, CATEGORY_ICON, baht, BrandLogo } from '../ui';
 
 type TabRole = 'host' | 'member';
 
@@ -41,7 +41,7 @@ export default function GroupsPage() {
 
   return (
     <div className="phone">
-      <header className="topbar"><h1>กลุ่ม</h1></header>
+      <header className="topbar"><BrandLogo /></header>
 
       <div className="seg" role="tablist">
         <button role="tab" aria-selected={tab === 'host'} onClick={() => setTab('host')}>HOST</button>
