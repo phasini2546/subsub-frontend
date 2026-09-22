@@ -50,6 +50,11 @@ export default function DetailPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  /* Role guard: หน้านี้เป็นของ Host เท่านั้น — ถ้าไม่ใช่โฮสต์ของกลุ่มนี้ ส่งไปหน้า Member (อ่านอย่างเดียว) */
+  useEffect(() => {
+    if (g && DB.me().user_id !== g.user_id) navigate('/member/group/' + id, { replace: true });
+  }, [g, id, navigate]);
+
   if (loading) return <div className="phone"><main className="screen"><div className="wrap"><div className="skel" style={{ height: 120 }} /></div></main></div>;
   if (!g) return (
     <div className="phone"><main className="screen">
@@ -198,7 +203,11 @@ export default function DetailPage() {
               <div key={m.member_id} className={`row tappable ${st === 'leaving' ? 'muted' : ''}`}
                 onClick={() => setManage(m)}>
                 {avatar(m, filled)}
-                <div className="who"><b>{m.user.display_name}</b><span>{s.text}</span></div>
+                <div className="who"><b>{m.user.display_name}</b><span>{
+                  st === 'leaving' && m._leave_effective
+                    ? `ประสงค์ออก · ที่นั่งว่าง ${new Date(m._leave_effective).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} (เตรียมหาคนใหม่ได้)`
+                    : s.text
+                }</span></div>
                 {st === 'review' ? (
                   <button className="pill review" onClick={e => { e.stopPropagation(); openSlip(m, 'member'); }}>{s.pill}</button>
                 ) : st === 'unpaid' ? (

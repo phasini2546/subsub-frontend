@@ -1,21 +1,25 @@
 /* =====================================================================
    SubSub · หน้าบริการ (Services) · pages/ServicesPage.tsx
    ---------------------------------------------------------------------
-   หน้าหลักแท็บ "บริการ" — สรุปค่าใช้จ่าย + ตัวกรองหมวดหมู่ +
-   รายการที่ใช้งานอยู่ (กลุ่มที่ร่วม + รายจ่ายส่วนตัว) + ปุ่มเพิ่มบริการใหม่
-   ต่อ DB จริงผ่าน db.ts (getMyGroups + getMySubscriptions + getDashboard)
-   ดีไซน์ใช้ design system เดียวกับหน้า Host (app.css)
+   แท็บ "บริการ" — สรุปค่าใช้จ่าย + ตัวกรอง + รายการที่ใช้งานอยู่
+   การ์ดกลุ่ม: แสดงบทบาท (Host/Member) · จำนวนสมาชิก · State · วันครบกำหนด
+   นำทางตามบทบาท: Host → /group/:id (จัดการได้) · Member → /member/group/:id (อ่านอย่างเดียว)
+   สีไอคอน/ป้าย แยกตามหมวดหมู่ (ไม่ใช้เขียวทุกหมวด)
    ===================================================================== */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DB, CATEGORY_LABEL } from '../db';
-import type { GroupRow, Subscription, Category } from '../types';
+import { DB, CATEGORY_LABEL, priceInfo, dueCountdown, cycleMonths } from '../db';
+import type { GroupRow, Subscription, Category, Role } from '../types';
+import type { MemberCardState } from '../db';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht2, BrandLogo } from '../ui';
 import AddServiceForm from './AddServiceForm';
 
+type DueMeta = { text: string; urgent: boolean; days: number };
+type GState = 'host' | MemberCardState;
 type Row =
-  | { kind: 'group'; id: string; name: string; category: Category; amount: number; group: GroupRow }
-  | { kind: 'solo'; id: string; name: string; category: Category; amount: number; sub: Subscription };
+  | { kind: 'group'; id: string; name: string; category: Category; amount: number;
+      role: Role; state: GState; memberCount: number; maxSlots: number; due: DueMeta; group: GroupRow }
+  | { kind: 'solo'; id: string; name: string; category: Category; amount: number; due: DueMeta; sub: Subscription };
 
 type Filter = Category | 'all';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -25,6 +29,20 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'Productivity', label: 'ทำงาน' },
   { key: 'Other', label: 'อื่น ๆ' },
 ];
+
+/* ป้ายสถานะกลุ่ม (อ้างอิงชุดสี state เดียวกับหน้า Member/Host) */
+const STATE_BADGE: Record<GState, { cls: string; text: string }> = {
+  host:     { cls: 'gbadge-active', text: 'ACTIVE' },
+  joined:   { cls: 'gbadge-active', text: 'เข้าร่วมแล้ว' },
+  pending:  { cls: 'gbadge-wait',   text: 'รออนุมัติ' },
+  rejected: { cls: 'gbadge-reject', text: 'ถูกปฏิเสธ' },
+  leaving:  { cls: 'gbadge-leave',  text: 'กำลังจะออก' },
+};
+
+/* วันครบกำหนด (มาตรฐานเดียวกับหน้า Member): 'ครบกำหนด อีก N วัน' + urgent (≤3 วัน แดงเข้ม) */
+function dueMeta(billing: string, cycle?: string): DueMeta {
+  return dueCountdown(billing, new Date(), cycleMonths(cycle));
+}
 
 export default function ServicesPage() {
   const navigate = useNavigate();
@@ -45,27 +63,52 @@ export default function ServicesPage() {
     await load();
     show('สร้างกลุ่มสาธิตแล้ว · รหัส ' + code + ' (คัดลอกแล้ว) → ไปหน้าเข้าร่วมกลุ่ม');
   };
+  const approveMine = async () => {
+    const n = await DB.devApproveMyPending();
+    await load();
+    show(n > 0 ? `จำลองโฮสต์อนุมัติแล้ว ${n} คำขอ — ดูการ์ดในแท็บ MEMBER` : 'ยังไม่มีคำขอที่รออนุมัติ');
+  };
+  const rejectMine = async () => {
+    const n = await DB.devRejectMyLatest();
+    await load();
+    show(n > 0 ? `จำลองโฮสต์ปฏิเสธแล้ว ${n} รายการ — เปิดการ์ดในแท็บ MEMBER เพื่อส่งสลิปใหม่` : 'ไม่มีสลิปที่รอตรวจสอบให้ปฏิเสธ');
+  };
+  const seedMidCycle = async () => {
+    const g = DB.ensureMidCycleDemo();
+    try { await navigator.clipboard.writeText(g.invite_code); } catch { /* clipboard blocked */ }
+    await load();
+    show('สร้างกลุ่มเข้ากลางรอบแล้ว · รหัส ' + g.invite_code + ' (คัดลอกแล้ว) → กรอกที่หน้า ① เพื่อดูการคิดเงินตามวัน');
+  };
+  const expireLeave = async () => {
+    const n = await DB.devExpireMyLeave();
+    await load();
+    show(n > 0 ? `เร่งเวลาให้คำขอออก ${n} กลุ่มครบกำหนด — คุณหลุดกลุ่มและ slot ว่างแล้ว` : 'ยังไม่มีคำขอออกที่รอครบกำหนด');
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [groups, subs, dash] = await Promise.all([
-      DB.getMyGroups(),            // กลุ่มที่ฉันเป็น Host/Member
+    const [groups, memberGroups, subs, dash] = await Promise.all([
+      DB.getMyGroups(),            // กลุ่มที่ฉันเป็น Host/Member (+role)
+      DB.getMemberGroups(),        // สถานะฝั่งสมาชิก (pending/joined/leaving...)
       DB.getMySubscriptions(),     // รายจ่ายส่วนตัว (เดี่ยว)
-      DB.getDashboard(),           // ยอดรวมรายปี (คิดตามเดือนสะสมจริง)
+      DB.getDashboard(),           // ยอดรวมรายปี
     ]);
-    // amount = "ยอดที่ต้องจ่ายจริงของฉัน" — กลุ่ม: หารต่อหัว (total_price / max_slots), เดี่ยว: เต็มจำนวน
-    const groupRows: Row[] = groups.map(g => ({
-      kind: 'group', id: g.group_id, name: g.service_name,
-      category: g.category, amount: Number(g.total_price) / Math.max(1, g.max_slots), group: g,
-    }));
+    const mState = new Map(memberGroups.map(m => [m.group_id, m.state]));
+    const groupRows: Row[] = groups.map(g => {
+      const pi = priceInfo(g);                                  // ราคา/ช่องที่มีผลจริง (ตรงกับหน้า Member)
+      return {
+        kind: 'group', id: g.group_id, name: g.service_name, category: g.category,
+        amount: pi.now / Math.max(1, pi.slotsNow),              // ส่วนของคุณ (หารต่อหัว)
+        role: g.role, state: g.role === 'Host' ? 'host' : (mState.get(g.group_id) ?? 'pending'),
+        memberCount: g.memberCount, maxSlots: g.max_slots, due: dueMeta(g.billing_date, g._billing_cycle), group: g,
+      } as Row;
+    });
     const soloRows: Row[] = subs.filter(s => !s.end_date).map(s => ({
-      kind: 'solo', id: s.sub_id, name: s.service_name,
-      category: s.category, amount: Number(s.price), sub: s,
+      kind: 'solo', id: s.sub_id, name: s.service_name, category: s.category,
+      amount: Number(s.price), due: dueMeta(s.billing_date), sub: s,
     }));
     const all = [...groupRows, ...soloRows];
     setRows(all);
-    // ยอดรวมเดือนนี้ = ผลรวมของยอดที่ต้องจ่ายจริงทุกรายการ → คำนวณจาก rows ชุดเดียวกับที่แสดง
-    // ทำให้ยอดรวม "อัปเดตตามการเพิ่ม/ลบเสมอ" และตรงกับผลรวมการ์ดที่เห็นบนจอ
     setMonthTotal(all.reduce((sum, r) => sum + r.amount, 0));
     setYearTotal(dash.yearTotal);
     setLoading(false);
@@ -74,6 +117,12 @@ export default function ServicesPage() {
   useEffect(() => { load(); }, [load]);
 
   const visible = filter === 'all' ? rows : rows.filter(r => r.category === filter);
+
+  /* นำทางตามบทบาท: Host จัดการกลุ่ม, Member ดูอย่างเดียว, เดี่ยวไปหน้าแก้ไข/ลบ */
+  const goto = (r: Row) => {
+    if (r.kind === 'solo') { navigate('/sub/' + r.id); return; }
+    navigate(r.role === 'Host' ? '/group/' + r.id : '/member/group/' + r.id);
+  };
 
   return (
     <div className="phone">
@@ -87,7 +136,6 @@ export default function ServicesPage() {
 
       <main className="screen">
         <div className="wrap">
-          {/* การ์ดสรุปค่าใช้จ่าย (ใช้สไตล์เดียวกับหน้าภาพรวม) */}
           {loading ? (
             <div className="skel" style={{ height: 132, marginBottom: 20 }} />
           ) : (
@@ -99,7 +147,6 @@ export default function ServicesPage() {
             </div>
           )}
 
-          {/* ตัวกรองหมวดหมู่ */}
           <div className="filterbar">
             {FILTERS.map(f => (
               <button key={f.key} className="chip" aria-pressed={filter === f.key}
@@ -128,50 +175,59 @@ export default function ServicesPage() {
                 : 'ไม่มีรายการในหมวดหมู่นี้'}</p>
             </div>
           ) : (
-            visible.map(r => {
-              const to = r.kind === 'group' ? '/group/' + r.id : '/sub/' + r.id;
-              return (
-                <div key={r.id} className="gcard" tabIndex={0} role="button"
-                  onClick={() => navigate(to)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(to); } }}>
-                  <div className="gtop">
-                    <div className="logo">{CATEGORY_ICON[r.category] || '📦'}</div>
-                    <div className="gname">
-                      <b>{r.name}</b>
+            visible.map(r => (
+              <div key={r.id} className="gcard" tabIndex={0} role="button"
+                onClick={() => goto(r)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(r); } }}>
+                <div className="gtop">
+                  <div className={'logo cat-' + r.category}>{CATEGORY_ICON[r.category] || '📦'}</div>
+                  <div className="gname">
+                    <b>{r.name}</b>
+                    <div className="svc-tags">
                       <span className={'ktag' + (r.kind === 'group' ? '' : ' solo')}>
                         {r.kind === 'group' ? Icon.people : Icon.person}
                         {r.kind === 'group' ? 'กลุ่ม' : 'เดี่ยว'}
                       </span>
+                      {r.kind === 'group' && (
+                        <span className={'rolechip ' + (r.role === 'Host' ? 'host' : 'member')}>
+                          {r.role === 'Host' ? 'Host' : 'Member'}
+                        </span>
+                      )}
                     </div>
-                    <span className="badge">{CATEGORY_LABEL[r.category]}</span>
+                    <span className={'duechip' + (r.due.urgent ? ' u' : '')}>{Icon.cal}{r.due.text}</span>
                   </div>
-                  <div className="gbot">
-                    <span className="seats">
-                      {r.kind === 'group'
-                        ? <>ส่วนของคุณ · สมาชิก <b>{r.group.memberCount}/{r.group.max_slots}</b> คน</>
-                        : <>รายจ่ายส่วนตัว · ชำระเอง</>}
-                    </span>
-                    <span className="amt">{baht2(r.amount)} บาท</span>
-                  </div>
+                  <span className={'badge cat-' + r.category}>{CATEGORY_LABEL[r.category]}</span>
                 </div>
-              );
-            })
+                <div className="gbot">
+                  <span className="seats">
+                    {r.kind === 'group'
+                      ? <>สมาชิก <b>{r.memberCount}/{r.maxSlots}</b> คน
+                          <span className={'statechip ' + STATE_BADGE[r.state].cls}>{STATE_BADGE[r.state].text}</span></>
+                      : <>รายจ่ายส่วนตัว · ชำระเอง</>}
+                  </span>
+                  <span className="amt">{baht2(r.amount)} บาท</span>
+                </div>
+              </div>
+            ))
           )}
 
-          {!loading && (
+          {!loading && import.meta.env.DEV && (
             <div className="testpanel" style={{ margin: '26px 0 0' }}>
               <div className="testpanel-h">🧪 โหมดทดสอบ Member (Dev)</div>
               <button onClick={() => navigate('/join')}>① เข้าร่วมกลุ่ม — ใช้รหัส DISNEY-99 (เต็ม: NFLX-2026)</button>
-              <button onClick={() => navigate('/member/pay')}>② หน้าชำระเงิน + อัปโหลดสลิป (232.80)</button>
-              <button onClick={() => navigate('/member/group')}>③ กลุ่มที่ใช้งาน — ตรวจสอบสลิป / ออกจากกลุ่ม</button>
-              <button onClick={seedDemo}>④ (DB) สร้างกลุ่มสาธิต + คัดลอกรหัสเชิญ</button>
+              <button onClick={() => navigate('/member/pay')}>② หน้าชำระเงิน + อัปโหลดสลิป (กลุ่มสาธิต disney)</button>
+              <button onClick={() => navigate('/member/group')}>③ กลุ่มที่เข้าร่วม — รายละเอียด/ส่งสลิป/ออกจากกลุ่ม</button>
+              <button onClick={seedDemo}>④ (DB) สร้างกลุ่มสาธิต + คัดลอกรหัสเชิญ (กรอกที่หน้า ①)</button>
+              <button onClick={approveMine}>⑤ จำลอง: โฮสต์อนุมัติคำขอ (state: เข้าร่วมแล้ว)</button>
+              <button onClick={rejectMine}>⑥ จำลอง: โฮสต์ปฏิเสธสลิปของฉัน (state: ถูกปฏิเสธ)</button>
+              <button onClick={seedMidCycle}>⑦ (DB) กลุ่มเข้ากลางรอบ — ทดสอบคิดเงินตามวัน (400/4)</button>
+              <button onClick={expireLeave}>⑧ จำลอง: ครบกำหนดออกจากกลุ่ม (หลุด + slot ว่าง)</button>
               <button onClick={resetData}>♻︎ รีเซ็ตข้อมูลทดสอบทั้งหมด</button>
             </div>
           )}
         </div>
       </main>
 
-      {/* ปุ่มลอย: เพิ่มบริการใหม่ (รายจ่ายส่วนตัว) */}
       {!loading && (
         <button className="fab" onClick={() => setAdding(true)}>
           {Icon.add}<span>เพิ่มบริการใหม่</span>
@@ -181,8 +237,6 @@ export default function ServicesPage() {
       <NavBar current="service" />
       {toast}
 
-      {/* ฟอร์มเพิ่มบริการใหม่ — มิเรอร์ UX หน้า Host สร้างกลุ่ม (CreatePage)
-          (การแก้ไข/ลบ ย้ายเข้าไปอยู่ในหน้ารายละเอียด /sub/:id แล้ว) */}
       {adding && (
         <AddServiceForm
           onClose={() => setAdding(false)}
