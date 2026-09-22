@@ -39,7 +39,6 @@ export default function DetailPage() {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [delGroup, setDelGroup] = useState(false);
-  const [manage, setManage] = useState<MemberWithDetail | null>(null);  // เมนูจัดการสมาชิก (ดูสลิป/นำออก)
 
   const reload = useCallback(async () => {
     const data = await DB.getGroup(id);
@@ -97,16 +96,6 @@ export default function DetailPage() {
     setDelGroup(false);
     show('ลบกลุ่มแล้ว — แจ้งสมาชิกทุกคนทาง LINE เรียบร้อย');
     setTimeout(() => navigate('/groups'), 900);
-  };
-
-  /* โฮสต์นำสมาชิกออกจากกลุ่มเอง (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
-  const doRemoveMember = async () => {
-    if (!manage) return;
-    const name = manage.user.display_name;
-    await DB.removeMember(g.group_id, manage.user_id);
-    setManage(null);
-    await reload();
-    show('นำ ' + name + ' ออกจากกลุ่มแล้ว — ที่นั่งว่างสำหรับคนใหม่ แจ้งทาง LINE เรียบร้อย');
   };
 
   /* ---------- test buttons ---------- */
@@ -194,9 +183,11 @@ export default function DetailPage() {
             const st = deriveStatus(m);
             const s = UI_STATUS[st];
             const filled = st === 'paid' || st === 'review';
+            const tap = st === 'paid';
+            const RowTag = tap ? 'button' : 'div';
             return (
-              <div key={m.member_id} className={`row tappable ${st === 'leaving' ? 'muted' : ''}`}
-                onClick={() => setManage(m)}>
+              <RowTag key={m.member_id} className={`row ${tap ? 'tappable' : ''} ${st === 'leaving' ? 'muted' : ''}`}
+                {...(tap ? { onClick: () => setApproved(m) } : {})}>
                 {avatar(m, filled)}
                 <div className="who"><b>{m.user.display_name}</b><span>{s.text}</span></div>
                 {st === 'review' ? (
@@ -206,7 +197,7 @@ export default function DetailPage() {
                 ) : (
                   <span className={'pill ' + s.cls}>{s.pill}</span>
                 )}
-              </div>
+              </RowTag>
             );
           })}
           {freeSeats > 0 && (
@@ -327,30 +318,6 @@ export default function DetailPage() {
             <div className="modal-actions two">
               <button className="btn ghost" onClick={() => setDelGroup(false)}>ยกเลิก</button>
               <button className="btn solid-danger" onClick={doDeleteGroup}>ลบกลุ่ม</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== modal: จัดการสมาชิก (ดูสลิป / นำออกจากกลุ่ม) ===== */}
-      {manage && (
-        <div className="veil" onClick={e => { if (e.target === e.currentTarget) setManage(null); }}>
-          <div className="modal">
-            <div className="modal-head"><h3>จัดการสมาชิก</h3>
-              <button className="x" onClick={() => setManage(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slipmeta">
-              <div className="av filled" />
-              <div className="who"><b>{manage.user.display_name}</b><span>{UI_STATUS[deriveStatus(manage)].text}</span></div>
-            </div>
-            {deriveStatus(manage) === 'paid' && manage.currentPayment && (
-              <button className="btn ghost" onClick={() => { const t = manage; setManage(null); setApproved(t); }}>ดูสลิปที่อนุมัติแล้ว</button>
-            )}
-            <p className="sub" style={{ marginTop: 10 }}>
-              นำออกจากกลุ่มแล้วที่นั่งจะว่างทันที สมาชิกจะไม่เห็นกลุ่มนี้อีก — ประวัติการจ่ายยังถูกเก็บไว้เพื่อคิดยอดย้อนหลัง<br />
-              เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
-            </p>
-            <div className="modal-actions">
-              <button className="btn danger" onClick={doRemoveMember}>นำออกจากกลุ่ม</button>
             </div>
           </div>
         </div>

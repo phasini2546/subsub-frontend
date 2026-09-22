@@ -290,6 +290,36 @@ export const DB = {
     return true;
   },
 
+  /* POST /api/join — [MEMBER] เข้าร่วมกลุ่มด้วยรหัสเชิญ
+     หา group จาก invite_code แล้วเพิ่ม "ฉัน" เป็นสมาชิกสถานะ Pending
+     + สร้าง payment รอตรวจ (ค่าบริการ + เงินประกัน) เพื่อให้ Host อนุมัติ */
+  async joinByCode(code: string): Promise<'ok' | 'notfound' | 'full' | 'already'> {
+    const norm = code.trim().replace(/^#/, '').toUpperCase();
+    const g = read<Group>('group').find(x => x.invite_code.toUpperCase() === norm);
+    if (!g) return 'notfound';
+
+    const members = read<Member>('member');
+    if (members.some(m => m.group_id === g.group_id && m.user_id === ME.user_id && !m.left_date)) return 'already';
+
+    const active = members.filter(m => m.group_id === g.group_id && m.status === 'Active');
+    if (active.length >= g.max_slots) return 'full';
+
+    members.push({
+      member_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      joined_date: today(), role: 'Member', status: 'Pending',
+    });
+    write<Member>('member', members);
+
+    const payments = read<Payment>('payment');
+    const amt = (Number(g.total_price) * 2).toFixed(2);   // ค่าบริการ + เงินประกัน [M6]
+    payments.push({
+      payment_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      amount: amt, slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString(),
+    });
+    write<Payment>('payment', payments);
+    return 'ok';
+  },
+
   async approvePayment(groupId: string, userId: string): Promise<boolean> {
     const payments = read<Payment>('payment');
     const p = payments.filter(x => x.group_id === groupId && x.user_id === userId)
@@ -384,6 +414,9 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
   async getMySubscriptions(): Promise<Subscription[]> {
     return read<Subscription>('subscription').filter(s => s.user_id === ME.user_id);
   },
+  async getSubscription(subId: string): Promise<Subscription | null> {
+    return read<Subscription>('subscription').find(s => s.sub_id === subId && s.user_id === ME.user_id) ?? null;
+  },
   async addSubscription(s: Omit<Subscription, 'sub_id' | 'user_id' | 'end_date'>): Promise<Subscription> {
     const subs = read<Subscription>('subscription');
     const sub: Subscription = { ...s, sub_id: uuid(), user_id: ME.user_id, end_date: null };
@@ -394,6 +427,24 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     const subs = read<Subscription>('subscription');
     const s = subs.find(x => x.sub_id === subId && !x.end_date);
     if (s) { s.end_date = today(); write<Subscription>('subscription', subs); }
+    return true;
+  },
+  /* PATCH /api/subscriptions/:id — แก้ไขรายจ่ายส่วนตัว */
+  async updateSubscription(
+    subId: string,
+    patch: Partial<Pick<Subscription, 'service_name' | 'price' | 'billing_date' | 'category'>>,
+  ): Promise<Subscription | null> {
+    const subs = read<Subscription>('subscription');
+    const s = subs.find(x => x.sub_id === subId && x.user_id === ME.user_id);
+    if (!s) return null;
+    Object.assign(s, patch);
+    write<Subscription>('subscription', subs);
+    return s;
+  },
+  /* DELETE /api/subscriptions/:id — ลบรายจ่ายส่วนตัวออกจริง */
+  async deleteSubscription(subId: string): Promise<boolean> {
+    write<Subscription>('subscription',
+      read<Subscription>('subscription').filter(x => !(x.sub_id === subId && x.user_id === ME.user_id)));
     return true;
   },
 
@@ -486,6 +537,40 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
   reset(): void {
     Object.values(K).forEach(k => localStorage.removeItem(k));
     write<User>('user', [ME]);
+  },
+
+  /* [DEV/TEST] สร้างกลุ่มสาธิต (โฮสต์เป็นคนอื่น) + สมาชิก Active 1 + คำขอ Pending 1
+     คืนรหัสเชิญให้ "ฉัน" นำไปกรอกที่หน้าเข้าร่วมกลุ่ม เพื่อทดสอบฝั่ง Member เต็มวงจร */
+  async seedDemoGroup(): Promise<{ group: Group; code: string }> {
+    const users = read<User>('user');
+    const hostId = uuid(), memId = uuid(), reqId = uuid();
+    users.push({ user_id: hostId, line_uid: 'Uhost' + hostId.slice(0, 6), display_name: 'โฮสต์ตัวอย่าง', pic_user: '' });
+    users.push({ user_id: memId, line_uid: 'Umem' + memId.slice(0, 6), display_name: 'สมาชิก A', pic_user: '' });
+    users.push({ user_id: reqId, line_uid: 'Ureq' + reqId.slice(0, 6), display_name: 'ผู้ขอเข้า B', pic_user: '' });
+    write<User>('user', users);
+
+    const code = genInviteCode();
+    const groups = read<Group>('group');
+    const g: Group = {
+      group_id: uuid(), user_id: hostId, service_name: 'Netflix (สาธิต)',
+      total_price: '149.00', max_slots: 4, billing_date: today().slice(0, 8) + '15',
+      invite_code: code, category: 'Entertainment',
+      bankDT: 'กสิกรไทย 123-4-56789-0 สมชาย ใจดี', _billing_cycle: 'monthly', _deposit: '149.00',
+    };
+    groups.push(g); write<Group>('group', groups);
+
+    const members = read<Member>('member');
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: hostId, joined_date: today(), role: 'Host', status: 'Active' });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: memId, joined_date: today(), role: 'Member', status: 'Active' });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: reqId, joined_date: today(), role: 'Member', status: 'Pending' });
+    write<Member>('member', members);
+
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: memId, amount: '149.00', slip_url: '/slips/demo.jpg', status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: reqId, amount: '298.00', slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+
+    return { group: g, code };
   },
 };
 

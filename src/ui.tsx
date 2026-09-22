@@ -2,8 +2,9 @@
    SubSub · shared UI helpers · ui.tsx
    ไอคอน SVG + hook แสดง toast — ใช้ร่วมกันทุกหน้า
    ===================================================================== */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { Category } from './types';
 import logoUrl from './assets/logo.png';
 
 /* ---------- โลโก้แบรนด์ (มุมซ้ายบนของหน้าหลัก) ---------- */
@@ -28,8 +29,20 @@ export const Icon = {
   info: (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" strokeLinecap="round" /></svg>
   ),
+  bang: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 7v6" /><path d="M12 17h.01" /></svg>
+  ),
+  edit: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+  ),
+  trash: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M10 11v6M14 11v6" /></svg>
+  ),
   person: (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" strokeLinecap="round" /></svg>
+  ),
+  people: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
   ),
   close: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -44,7 +57,7 @@ export function NavBar({ current = 'group' }: { current?: string }) {
   const navigate = useNavigate();
   return (
     <nav className="nav">
-      <button aria-current={current === 'service' ? 'page' : undefined}>
+      <button aria-current={current === 'service' ? 'page' : undefined} onClick={() => navigate('/service')}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
         บริการ
       </button>
@@ -81,3 +94,50 @@ export const baht = (n: string | number) =>
   Number(n).toLocaleString('th-TH', { minimumFractionDigits: 0 });
 export const baht2 = (n: string | number) =>
   Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+/* ---------- ตัวเลือกหมวดหมู่แบบแถว (ดีไซน์ Figma ใหม่) ---------- */
+const CAT_ICON: Record<Category, ReactNode> = {
+  Entertainment: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8Z" /><path d="m3.5 8 3-4 3.2 3.4M9.7 3.4l3.2 3.4M15.6 3.1l3 3.5" /></svg>
+  ),
+  Music: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+  ),
+  Productivity: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>
+  ),
+  Other: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
+  ),
+};
+const CAT_ROWS: { key: Category; label: string }[] = [
+  { key: 'Entertainment', label: 'บันเทิง' },
+  { key: 'Music', label: 'เพลง' },
+  { key: 'Productivity', label: 'งาน' },
+  { key: 'Other', label: 'อื่น ๆ' },
+];
+
+export function CategoryPicker({ value, onChange }: {
+  value: Category | ''; onChange: (c: Category) => void;
+}) {
+  return (
+    <div className="catlist">
+      {CAT_ROWS.map(c => (
+        <button type="button" key={c.key} className="catrow"
+          aria-pressed={value === c.key} onClick={() => onChange(c.key)}>
+          <span className="catic">{CAT_ICON[c.key]}</span>
+          <span className="catlbl">{c.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- กล่องแจ้งเตือน (เส้นขอบ + ไอคอน !) ---------- */
+export function ReminderAlert({ text }: { text: string }) {
+  return (
+    <div className="remind" role="note">
+      <span className="remind-ic">{Icon.bang}</span>
+      <span>{text}</span>
+    </div>
+  );
+}

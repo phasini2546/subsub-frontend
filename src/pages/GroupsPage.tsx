@@ -4,7 +4,7 @@
    ===================================================================== */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DB, priceInfo } from '../db';
+import { DB, priceInfo, nextDueDate, daysUntilDue } from '../db';
 import type { GroupRow, Role } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht, BrandLogo } from '../ui';
 
@@ -100,6 +100,19 @@ export default function GroupsPage() {
                   <span className="seats">สมาชิกปัจจุบัน <b>{g.memberCount}/{g.max_slots}</b> คน</span>
                   <span className="amt">{baht(priceInfo(g).now)} บาท</span>
                 </div>
+                {isHost && (() => {
+                  const days = daysUntilDue(g.billing_date);
+                  const dt = nextDueDate(g.billing_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'long' });
+                  const msg = days < 0 ? `เลยกำหนดชำระ ${Math.abs(days)} วัน`
+                    : days === 0 ? 'ครบกำหนดชำระวันนี้'
+                    : `ครบกำหนด ${dt} · อีก ${days} วัน`;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10,
+                      fontSize: 12, fontWeight: 600, color: days <= 3 ? 'var(--red)' : 'var(--ink-2)' }}>
+                      {Icon.cal}<span>{msg}</span>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

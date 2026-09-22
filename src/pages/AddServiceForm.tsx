@@ -1,33 +1,35 @@
 /* =====================================================================
-   SubSub · หน้าสร้างกลุ่มใหม่ · pages/CreatePage.tsx
-   แปลงจาก create.html + create.js — validation + บันทึกลง DB
+   SubSub · ฟอร์มเพิ่มบริการใหม่ (รายจ่ายส่วนตัว) · pages/AddServiceForm.tsx
+   ---------------------------------------------------------------------
+   มิเรอร์ UI/UX ของหน้า Host สร้างกลุ่ม (CreatePage) — form + validation
+   + modal ยืนยัน — แต่บันทึกเป็น Subscription (เดี่ยว) ไม่ใช่ Group
+   จึงตัด field ที่เป็นของกลุ่มออก (จำนวนสมาชิก / บัญชีธนาคาร)
    ===================================================================== */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { DB } from '../db';
-import type { Category } from '../types';
+import type { Category, Subscription } from '../types';
 import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
 
 type Cycle = 'monthly' | 'yearly';
-type Form = {
-  service_name: string; total_price: string; max_slots: string;
-  billing_day: string; billing_date_full: string;
-  bank: string; account: string; holder: string;
-};
-const EMPTY: Form = {
-  service_name: '', total_price: '', max_slots: '',
-  billing_day: '', billing_date_full: '', bank: '', account: '', holder: '',
-};
+type Form = { service_name: string; price: string; billing_day: string; billing_date_full: string };
+const EMPTY: Form = { service_name: '', price: '', billing_day: '', billing_date_full: '' };
 
-
-export default function CreatePage() {
-  const navigate = useNavigate();
+export default function AddServiceForm({
+  onClose, onSaved, editing,
+}: { onClose: () => void; onSaved: (name: string) => void; editing?: Subscription | null }) {
   const { show, node: toast } = useToast();
-
-  const [form, setForm] = useState<Form>(EMPTY);
+  const isEdit = !!editing;
+  const [form, setForm] = useState<Form>(editing
+    ? {
+        service_name: editing.service_name,
+        price: String(Number(editing.price)),
+        billing_day: String(new Date(editing.billing_date).getDate()),
+        billing_date_full: '',
+      }
+    : EMPTY);
   const [cycle, setCycle] = useState<Cycle>('monthly');
-  const [category, setCategory] = useState<Category | ''>('');
+  const [category, setCategory] = useState<Category | ''>(editing ? editing.category : '');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
 
@@ -36,23 +38,18 @@ export default function CreatePage() {
     setErrors(e => { const n = { ...e }; delete n[k]; return n; });
   };
 
-  /* validation: กันกรอกไม่ครบ */
   function validate(): string | null {
     const e: Record<string, string> = {};
     let firstBad: string | null = null;
     const fail = (k: string, msg: string) => { e[k] = msg; if (!firstBad) firstBad = k; };
 
     if (!form.service_name) fail('service_name', 'กรุณากรอกชื่อบริการ');
-    if (!form.total_price || Number(form.total_price) <= 0) fail('total_price', 'กรุณากรอกราคาที่มากกว่า 0');
-    if (!form.max_slots || Number(form.max_slots) < 2) fail('max_slots', 'จำนวนสมาชิกต้องอย่างน้อย 2 คน');
+    if (!form.price || Number(form.price) <= 0) fail('price', 'กรุณากรอกราคาที่มากกว่า 0');
     if (cycle === 'monthly') {
       const d = Number(form.billing_day);
       if (!form.billing_day || d < 1 || d > 31) fail('billing_date', 'กรุณาระบุวันที่ 1–31');
     } else if (!form.billing_date_full) fail('billing_date', 'กรุณาเลือกวันตัดรอบบิล');
     if (!category) fail('category', 'กรุณาเลือกหมวดหมู่');
-    if (!form.bank) fail('bank', 'กรุณากรอกธนาคาร/พร้อมเพย์');
-    if (!form.account) fail('account', 'กรุณากรอกเลขบัญชี');
-    if (!form.holder) fail('holder', 'กรุณากรอกชื่อบัญชี');
 
     setErrors(e);
     return firstBad;
@@ -69,7 +66,6 @@ export default function CreatePage() {
   }
 
   async function doSave() {
-    // แปลง billing_date ตามรอบ
     let billing_date: string;
     if (cycle === 'monthly') {
       const now = new Date();
@@ -77,53 +73,44 @@ export default function CreatePage() {
       billing_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${day}`;
     } else billing_date = form.billing_date_full;
 
-    const created = await DB.createGroup({
+    const payload = {
       service_name: form.service_name,
-      total_price: Number(form.total_price).toFixed(2),
-      max_slots: Number(form.max_slots),
+      price: Number(form.price).toFixed(2),
       billing_date,
       category: category as Category,
-      bankDT: `${form.bank} ${form.account} ${form.holder}`,
-      billing_cycle: cycle,   // [M3]
-    });
+    };
+    if (isEdit && editing) await DB.updateSubscription(editing.sub_id, payload);
+    else await DB.addSubscription(payload);
     setConfirm(false);
-    show('สร้างกลุ่ม “' + created.service_name + '” เรียบร้อย');
-    setTimeout(() => navigate('/groups'), 900);
+    onSaved(form.service_name);
   }
 
   return (
-    <div className="phone">
+    <div className="addsvc">
       <header className="topbar">
-        <button className="back" onClick={() => navigate('/groups')} aria-label="ย้อนกลับ">{Icon.back}</button>
-        <h1>สร้างกลุ่มใหม่</h1>
+        <button className="back" onClick={onClose} aria-label="ปิด">{Icon.back}</button>
+        <h1>{isEdit ? 'แก้ไขบริการ' : 'เพิ่มบริการใหม่'}</h1>
       </header>
 
       <main className="screen">
         <div className="form">
-          <h2>รายละเอียด<br />การสร้างกลุ่ม</h2>
+          <h2>{isEdit ? 'แก้ไขรายละเอียด' : 'รายละเอียด'}<br />บริการของคุณ</h2>
 
           <div className="field" data-field="service_name">
             <label>ชื่อบริการ</label>
-            <input type="text" value={form.service_name} placeholder="ชื่อบริการ"
+            <input type="text" value={form.service_name} placeholder="เช่น Netflix, iCloud+"
               className={errors.service_name ? 'invalid' : ''} onChange={e => set('service_name', e.target.value)} />
             {errors.service_name && <p className="err">{errors.service_name}</p>}
           </div>
 
-          <div className="field" data-field="total_price">
+          <div className="field" data-field="price">
             <label>ราคา (บาท/เดือน)</label>
             <div className="inputmoney">
-              <input type="number" value={form.total_price} placeholder="0.00" min={0} step="0.01"
-                className={errors.total_price ? 'invalid' : ''} onChange={e => set('total_price', e.target.value)} />
+              <input type="number" value={form.price} placeholder="0.00" min={0} step="0.01"
+                className={errors.price ? 'invalid' : ''} onChange={e => set('price', e.target.value)} />
               <span>THB</span>
             </div>
-            {errors.total_price && <p className="err">{errors.total_price}</p>}
-          </div>
-
-          <div className="field" data-field="max_slots">
-            <label>จำนวนสมาชิก (รวม Host)</label>
-            <input type="number" value={form.max_slots} placeholder="จำนวนสมาชิก" min={2} max={20}
-              className={errors.max_slots ? 'invalid' : ''} onChange={e => set('max_slots', e.target.value)} />
-            {errors.max_slots && <p className="err">{errors.max_slots}</p>}
+            {errors.price && <p className="err">{errors.price}</p>}
           </div>
 
           <div className="field">
@@ -143,9 +130,8 @@ export default function CreatePage() {
             </div>
           ) : (
             <div className="field" data-field="billing_date">
-              <label>วันตัดรอบบิล (ระบุวันที่สมัคร)</label>
-              <DatePicker value={form.billing_date_full}
-                invalid={!!errors.billing_date}
+              <label>วันตัดรอบบิล (ระบุวันที่เริ่มใช้บริการ)</label>
+              <DatePicker value={form.billing_date_full} invalid={!!errors.billing_date}
                 onChange={v => set('billing_date_full', v)} />
               {errors.billing_date && <p className="err">{errors.billing_date}</p>}
             </div>
@@ -160,31 +146,11 @@ export default function CreatePage() {
 
           <ReminderAlert text="ระบบจะช่วยเตือนคุณก่อนถึงวันตัดรอบบิล 3 วัน" />
 
-          <h3 className="subhead">รายละเอียดบัญชีธนาคาร</h3>
+          <p className="hint" style={{ marginTop: 14 }}>
+            บริการแบบเดี่ยวคือรายจ่ายที่คุณชำระเอง ระบบจะนำไปรวมในสรุปค่าใช้จ่ายของคุณ
+          </p>
 
-          <div className="field" data-field="bank">
-            <label>ธนาคาร (หากเป็นพร้อมเพย์ให้ระบุเป็นพร้อมเพย์)</label>
-            <input type="text" value={form.bank} placeholder="Ex. กสิกรไทย (K-Bank)/พร้อมเพย์"
-              className={errors.bank ? 'invalid' : ''} onChange={e => set('bank', e.target.value)} />
-            {errors.bank && <p className="err">{errors.bank}</p>}
-          </div>
-
-          <div className="field" data-field="account">
-            <label>เลขบัญชี</label>
-            <input type="text" value={form.account} placeholder="xxx-x-xxxxx-x"
-              className={errors.account ? 'invalid' : ''} onChange={e => set('account', e.target.value)} />
-            {errors.account && <p className="err">{errors.account}</p>}
-          </div>
-
-          <div className="field" data-field="holder">
-            <label>ชื่อบัญชี</label>
-            <input type="text" value={form.holder} placeholder="ชื่อ นามสกุล ภาษาไทยหรืออังกฤษ"
-              className={errors.holder ? 'invalid' : ''} onChange={e => set('holder', e.target.value)} />
-            <p className="hint">ข้อมูลบัญชีธนาคารของคุณจะถูกแชร์ให้กับสมาชิกในกลุ่มเพื่อความสะดวกในการโอนเงินคืนเท่านั้น</p>
-            {errors.holder && <p className="err">{errors.holder}</p>}
-          </div>
-
-          <button type="button" className="btn primary" onClick={askSave}>บันทึกข้อมูล</button>
+          <button type="button" className="btn primary" onClick={askSave}>{isEdit ? 'บันทึกการแก้ไข' : 'บันทึกข้อมูล'}</button>
           <div style={{ height: 24 }} />
         </div>
       </main>
