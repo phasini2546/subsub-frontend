@@ -1,33 +1,67 @@
 /* =====================================================================
    SubSub · ชำระเงินเข้ากลุ่ม (Member) · pages/MemberPay.tsx
    ---------------------------------------------------------------------
-   พอร์ตจากหน้าจอ 05/06/07/10/11 (25 ส.ค.) — รายละเอียดยอดที่ต้องชำระ
-   + ชีตอัปโหลดสลิป + ผลลัพธ์สำเร็จ/ไม่สำเร็จ
-   • ?plan=full  → เต็มเดือน 298.80 | ค่าเริ่มต้น: คิดตามจริง 232.80
-   • ?result=fail → แสดงผล "คำขอเข้าร่วมไม่สำเร็จ"
+   หน้า "รายละเอียดกลุ่ม" ก่อนเข้าร่วม — ยอดที่ต้องชำระ (หารต่อหัว + เงินประกัน)
+   + บัญชีธนาคาร + อัปโหลดสลิป แล้วแสดงผล "ฝังในหน้า" (ไม่ใช่ pop-up)
+     • สำเร็จ  → ส่งคำขอเข้ากลุ่ม (บันทึกลง DB สถานะรอโฮสต์อนุมัติ) + การ์ดโผล่แท็บ MEMBER
+     • ไม่สำเร็จ → 1) โฮสต์ปฏิเสธ (?result=fail)  2) ไฟล์ไม่รองรับ/เกินขนาด
    ===================================================================== */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../ui';
+import { DB } from '../db';
+import type { Group } from '../types';
 import {
-  MIcon, BankInfoCard, SlipUploader, BottomSheet, ResultOverlay, th2,
+  MIcon, BankInfoCard, SlipUploader, BottomSheet, InlineResult, validateSlip, compressImage, th2,
 } from './MemberUI';
-import { proratedGroup, fullMonthGroup } from '../memberMock';
+
+type Phase = 'form' | 'success' | 'fail';
 
 export default function MemberPay() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const group = params.get('plan') === 'full' ? fullMonthGroup : proratedGroup;
-  const forceFail = params.get('result') === 'fail';
+  const forceFail = params.get('result') === 'fail';   // จำลอง: โฮสต์ปฏิเสธ
 
+  const [group, setGroup] = useState<Group | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [slip, setSlip] = useState<File | null>(null);
-  const [result, setResult] = useState<null | 'ok' | 'fail'>(null);
+  const [phase, setPhase] = useState<Phase>('form');
+  const [failMsg, setFailMsg] = useState('');
 
-  const confirmSend = () => {
+  /* หา group จาก gid — ไม่มี gid ให้ใช้กลุ่มสาธิต disney */
+  useEffect(() => {
+    const gid = params.get('gid');
+    if (gid) {
+      if (DB.memberJoinStatus(gid) === 'already') { navigate('/member/group/' + gid); return; }
+      setGroup(DB.findGroupById(gid));
+    } else {
+      setGroup(DB.ensureDemoDisney());
+    }
+  }, [params, navigate]);
+
+  const quote = useMemo(() => (group ? DB.memberQuote(group.group_id) : null), [group]);
+
+  const confirmSend = async () => {
     setSheetOpen(false);
-    setTimeout(() => setResult(forceFail ? 'fail' : 'ok'), 250);
+    const v = validateSlip(slip);
+    if (!v.ok) {                                   // 2) ไฟล์ไม่รองรับ/เกินขนาด
+      setFailMsg(v.reason || 'ไฟล์ที่แนบไม่ถูกต้อง');
+      setTimeout(() => setPhase('fail'), 200);
+      return;
+    }
+    if (forceFail) {                               // 1) โฮสต์ปฏิเสธ (จำลอง)
+      setFailMsg('คำขอเข้าร่วมกลุ่มของคุณไม่ได้รับการอนุมัติจากโฮสต์ กรุณาติดต่อโฮสต์หรือลองส่งหลักฐานใหม่');
+      setTimeout(() => setPhase('fail'), 200);
+      return;
+    }
+    if (!group) return;
+    const dataUrl = slip ? await compressImage(slip) : '';
+    DB.joinGroupWithSlip(group.group_id, dataUrl);   // บันทึกคำขอ + สลิปลง DB
+    setTimeout(() => setPhase('success'), 200);
   };
+
+  const retryUpload = () => { setSlip(null); setPhase('form'); setSheetOpen(true); };
+
 
   return (
     <div className="phone">
@@ -38,12 +72,12 @@ export default function MemberPay() {
 
       <main className="mscreen">
         {/* บันทึกย่อ */}
-        <div className="msummary">{MIcon.info}<p>{group.note}</p></div>
+        <div className="msummary">{MIcon.info}<p>กรุณาชำระเงินเพื่อเริ่มใช้งานกลุ่ม และ ระบบคำนวณยอดหารให้อัตโนมัติ</p></div>
 
         {/* ยอดรวมที่ต้องชำระ */}
         <div className="duecard">
           <div className="duecard-l">TOTAL AMOUNT DUE</div>
-          <div className="duecard-a">{th2(group.totalDue)}<span>บาท</span></div>
+          <div className="duecard-a">{th2(quote ? quote.totalDue : 0)}<span>บาท</span></div>
         </div>
 
         {/* สรุปยอดคำนวณ */}
@@ -52,15 +86,19 @@ export default function MemberPay() {
           <div className="brkrows">
             <div className="brkrow">
               <div>
-                <div className="bl">{group.breakdown.firstMonthLabel}</div>
-                <div className="bc">{group.breakdown.firstMonthCalc}</div>
+                <div className="bl">ค่าบริการเดือนแรก{quote?.prorated ? ' (ตามสัดส่วนวัน)' : ' (หารต่อหัว)'}</div>
+                <div className="bc">
+                  {quote?.prorated
+                    ? `ราคาเต็ม ${th2(quote.fullPrice)} ÷ ${quote.slots} คน = ${th2(quote.share)}/เดือน · ใช้จริง ${quote.usedDays}/${quote.daysInMonth} วัน`
+                    : `ราคาเต็ม ${th2(quote ? quote.fullPrice : 0)} ÷ ${quote ? quote.slots : 0} คน`}
+                </div>
               </div>
-              <div className="bv">{th2(group.breakdown.firstMonthAmount)} บาท</div>
+              <div className="bv">{th2(quote ? quote.firstAmount : 0)} บาท</div>
             </div>
             <div className="brkdiv" />
             <div className="brkrow" style={{ alignItems: 'center' }}>
-              <div className="bl">{group.breakdown.depositLabel}</div>
-              <div className="bv">{th2(group.breakdown.depositAmount)} บาท</div>
+              <div className="bl">เงินประกัน (Security Deposit)</div>
+              <div className="bv">{th2(quote ? quote.deposit : 0)} บาท</div>
             </div>
           </div>
         </div>
@@ -68,11 +106,34 @@ export default function MemberPay() {
         {/* บัญชีธนาคาร */}
         <BankInfoCard />
 
-        {/* ปุ่มอัปโหลดสลิป */}
-        <button className="mbtn gold" onClick={() => setSheetOpen(true)}>
-          {MIcon.upload}อัปโหลดสลิป (Upload Slip)
-        </button>
-        <p className="mnote">เมื่อโอนเงินเสร็จสิ้น โปรดแนบหลักฐานการโอนเงินเพื่อให้ Host ตรวจสอบยอดชำระ</p>
+        {/* ---- ใต้บัญชีธนาคาร: ฟอร์มอัปโหลด หรือ ผลลัพธ์ฝังในหน้า ---- */}
+        {phase === 'form' && (
+          <>
+            <button className="mbtn gold" onClick={() => setSheetOpen(true)}>
+              {MIcon.upload}อัปโหลดสลิป (Upload Slip)
+            </button>
+            <p className="mnote">เมื่อโอนเงินเสร็จสิ้น โปรดแนบหลักฐานการโอนเงินเพื่อให้ Host ตรวจสอบยอดชำระ</p>
+          </>
+        )}
+
+        {phase === 'success' && (
+          <InlineResult
+            variant="success"
+            title="ส่งคำขอเข้ากลุ่มสำเร็จ"
+            message="ระบบได้ส่งคำขอของคุณไปยังเจ้าของกลุ่มเรียบร้อยแล้ว โปรดรอการยืนยันจากโฮสต์ในขั้นตอนถัดไป"
+            waiting="รอการอนุมัติจากโฮสต์"
+            primary={{ label: 'ไปที่กลุ่มของฉัน', onClick: () => navigate(group ? '/member/group/' + group.group_id : '/groups') }}
+          />
+        )}
+
+        {phase === 'fail' && (
+          <InlineResult
+            variant="error"
+            title="ขออภัย คำขอเข้าร่วมไม่สำเร็จ"
+            message={failMsg}
+            retry={{ label: 'อัปโหลดสลิป (Upload Slip)', onClick: retryUpload }}
+          />
+        )}
       </main>
 
       {/* ชีตอัปโหลดสลิป */}
@@ -88,26 +149,6 @@ export default function MemberPay() {
           </button>
         </div>
       </BottomSheet>
-
-      {/* ผล: ส่งคำขอเข้ากลุ่มสำเร็จ */}
-      <ResultOverlay
-        open={result === 'ok'}
-        variant="success"
-        title="ส่งคำขอเข้ากลุ่มสำเร็จ"
-        message="ระบบได้ส่งคำขอของคุณไปยังเจ้าของกลุ่มเรียบร้อยแล้ว โปรดรอการยืนยันจากโฮสต์ในขั้นตอนถัดไป"
-        action={{ label: 'ไปที่กลุ่มของฉัน', onClick: () => navigate('/member/group') }}
-        onClose={() => setResult(null)}
-      />
-
-      {/* ผล: คำขอเข้าร่วมไม่สำเร็จ */}
-      <ResultOverlay
-        open={result === 'fail'}
-        variant="error"
-        title="ขออภัย คำขอเข้าร่วมไม่สำเร็จ"
-        message="คำขอเข้าร่วมกลุ่มของคุณไม่ได้รับการอนุมัติ กรุณาลองเลือกกลุ่มใหม่อีกครั้ง"
-        action={{ label: 'ลองอีกครั้ง', onClick: () => setResult(null) }}
-        onClose={() => setResult(null)}
-      />
     </div>
   );
 }

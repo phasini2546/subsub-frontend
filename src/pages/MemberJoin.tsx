@@ -1,14 +1,15 @@
 /* =====================================================================
    SubSub · เข้าร่วมกลุ่ม (Member) · pages/MemberJoin.tsx
    ---------------------------------------------------------------------
-   พอร์ตจากหน้าจอ 02/03/04/08 (25 ส.ค.) — กรอกรหัสคำเชิญ
-   • DISNEY-99  → ไปหน้าชำระเงิน /member/pay
-   • NFLX-2026  → กลุ่มเต็ม
-   • รหัสอื่น    → รหัสไม่ถูกต้อง
+   กรอกรหัสคำเชิญ แล้วค้นหากลุ่มจาก DB จริง (รองรับรหัสจากกลุ่มที่โฮสต์สร้าง
+   และรหัสสาธิต DISNEY-99). ถ้าพบ → ไปหน้าชำระเงิน /member/pay?gid=<id>
+     • เป็นสมาชิกอยู่แล้ว → ไปหน้ารายละเอียดกลุ่ม
+     • กลุ่มเต็ม / ไม่พบรหัส → แจ้ง error
    ===================================================================== */
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../ui';
+import { DB } from '../db';
 import { MIcon } from './MemberUI';
 import { codeInstructions, VALID_CODE, FULL_CODE } from '../memberMock';
 
@@ -24,17 +25,31 @@ export default function MemberJoin() {
         : '',
   );
 
-  const normalized = code.replace(/[#\s]/g, '').toUpperCase();
-
   const submit = () => {
+    const normalized = code.replace(/[#\s]/g, '').toUpperCase();
     if (!normalized) { setError('กรุณากรอกรหัสคำเชิญก่อนเข้าร่วม'); return; }
-    if (normalized === FULL_CODE.replace(/-/g, '') || normalized === FULL_CODE) {
+
+    // รหัสสาธิต "กลุ่มเต็ม"
+    if (normalized === FULL_CODE.replace(/-/g, '')) {
       setError('ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'); return;
     }
-    if (normalized === VALID_CODE.replace(/-/g, '') || normalized === VALID_CODE) {
-      navigate('/member/pay'); return;
+    // รหัสสาธิต DISNEY-99 → สร้าง/หา กลุ่มสาธิตใน DB ก่อน
+    if (normalized === VALID_CODE.replace(/-/g, '')) {
+      const g = DB.ensureDemoDisney();
+      routeToGroup(g.group_id);
+      return;
     }
-    setError('กรุณาตรวจสอบความถูกต้องของรหัสผ่านแล้วลองใหม่อีกครั้ง');
+    // รหัสจริงจากกลุ่มที่โฮสต์สร้าง
+    const g = DB.findGroupByCode(normalized);
+    if (!g) { setError('กรุณาตรวจสอบความถูกต้องของรหัสผ่านแล้วลองใหม่อีกครั้ง'); return; }
+    routeToGroup(g.group_id);
+  };
+
+  const routeToGroup = (gid: string) => {
+    const st = DB.memberJoinStatus(gid);
+    if (st === 'already') { navigate('/member/group/' + gid); return; }
+    if (st === 'full') { setError('ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'); return; }
+    navigate('/member/pay?gid=' + gid);
   };
 
   return (

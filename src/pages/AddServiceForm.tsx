@@ -78,6 +78,7 @@ export default function AddServiceForm({
       price: Number(form.price).toFixed(2),
       billing_date,
       category: category as Category,
+      _billing_cycle: cycle,
     };
     if (isEdit && editing) await DB.updateSubscription(editing.sub_id, payload);
     else await DB.addSubscription(payload);

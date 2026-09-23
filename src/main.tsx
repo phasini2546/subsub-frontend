@@ -30,6 +30,7 @@ const router = createBrowserRouter([
   { path: '/join', element: <MemberJoin /> },
   { path: '/member/pay', element: <MemberPay /> },
   { path: '/member/group', element: <MemberGroup /> },
+  { path: '/member/group/:id', element: <MemberGroup /> },
   { path: '/create', element: <CreatePage /> },
   { path: '/group/:id', element: <DetailPage /> },
   { path: '/group/:id/edit', element: <EditPage /> },

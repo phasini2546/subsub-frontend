@@ -1,10 +1,14 @@
 /* =====================================================================
    SubSub · หน้ากลุ่ม (รายการ + empty) · pages/GroupsPage.tsx
    แปลงจาก groups.html + groups.js — รองรับ 2 โรล (host/member)
+     • HOST   : กลุ่มที่ฉันเป็นเจ้าของ (จาก DB.getMyGroups)
+     • MEMBER : การ์ดกลุ่มที่ฉันเข้าร่วม (จาก DB.getMemberGroups) —
+                โชว์ราคาเต็ม + ราคาหารต่อหัว + สถานะ (รอตรวจสอบ/ACTIVE)  (ข้อ 6,8)
    ===================================================================== */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DB, priceInfo, nextDueDate, daysUntilDue } from '../db';
+import type { MemberGroupRow } from '../db';
 import type { GroupRow, Role } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht, BrandLogo } from '../ui';
 
@@ -15,18 +19,17 @@ export default function GroupsPage() {
   const { show, node: toast } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<{ host: GroupRow[]; member: GroupRow[] }>({ host: [], member: [] });
+  const [hostRows, setHostRows] = useState<GroupRow[]>([]);
+  const [memberRows, setMemberRows] = useState<MemberGroupRow[]>([]);
   const [tab, setTab] = useState<TabRole>('host');
 
-  /* โหลดกลุ่มของฉัน แล้วแยกตาม role */
+  /* โหลดกลุ่มของฉัน: HOST จาก DB, MEMBER จาก store ฝั่งสมาชิก */
   useEffect(() => {
     (async () => {
       setLoading(true);
       const all = await DB.getMyGroups();          // GET /api/my-groups
-      setRows({
-        host: all.filter(g => g.role === ('Host' as Role)),
-        member: all.filter(g => g.role === ('Member' as Role)),
-      });
+      setHostRows(all.filter(g => g.role === ('Host' as Role)));
+      setMemberRows(await DB.getMemberGroups());
       setLoading(false);
     })();
   }, []);
@@ -36,8 +39,8 @@ export default function GroupsPage() {
     show('คัดลอกรหัส #' + code + ' แล้ว ส่งให้เพื่อนทาง LINE ได้เลย');
   };
 
-  const list = rows[tab];
   const isHost = tab === 'host';
+  const isEmpty = isHost ? hostRows.length === 0 : memberRows.length === 0;
 
   return (
     <div className="phone">
@@ -64,15 +67,15 @@ export default function GroupsPage() {
               </div>
             ))}
           </div>
-        ) : list.length === 0 ? (
+        ) : isEmpty ? (
           <div className="empty">
             <p>{isHost
               ? 'ดูเหมือนว่าคุณยังไม่ได้สร้างกลุ่ม กรุณาสร้างกลุ่มเพื่อเริ่มต้นใช้งาน'
               : 'ดูเหมือนว่าคุณยังไม่ได้เข้าร่วมกลุ่ม กรุณาเข้าร่วมกลุ่มเพื่อเริ่มต้นใช้งาน'}</p>
           </div>
-        ) : (
+        ) : isHost ? (
           <div className="wrap">
-            {list.map(g => (
+            {hostRows.map(g => (
               <div
                 key={g.group_id}
                 className="gcard"
@@ -82,16 +85,14 @@ export default function GroupsPage() {
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/group/' + g.group_id); } }}
               >
                 <div className="gtop">
-                  <div className="logo">{CATEGORY_ICON[g.category] || '📦'}</div>
+                  <div className={'logo cat-' + g.category}>{CATEGORY_ICON[g.category] || '📦'}</div>
                   <div className="gname">
                     <b>{g.service_name}</b>
                     <span className="codechip">
                       <span>#{g.invite_code}</span>
-                      {isHost && (
-                        <button onClick={e => { e.stopPropagation(); copyCode(g.invite_code); }} aria-label="คัดลอกรหัสเชิญ">
-                          {Icon.copy}
-                        </button>
-                      )}
+                      <button onClick={e => { e.stopPropagation(); copyCode(g.invite_code); }} aria-label="คัดลอกรหัสเชิญ">
+                        {Icon.copy}
+                      </button>
                     </span>
                   </div>
                   <span className="badge">ACTIVE</span>
@@ -115,6 +116,45 @@ export default function GroupsPage() {
                 })()}
               </div>
             ))}
+          </div>
+        ) : (
+          /* ---- แท็บ MEMBER: กลุ่มที่เข้าร่วม (ราคาเต็ม + ราคาหาร + สถานะ) ---- */
+          <div className="wrap">
+            {memberRows.map(c => {
+              const badge = c.state === 'joined'
+                ? { cls: 'gbadge-active', text: 'เข้าร่วมแล้ว' }
+                : c.state === 'leaving'
+                  ? { cls: 'gbadge-leave', text: 'กำลังจะออก' }
+                  : c.state === 'rejected'
+                    ? { cls: 'gbadge-reject', text: 'ถูกปฏิเสธ' }
+                    : { cls: 'gbadge-wait', text: 'รออนุมัติ' };
+              return (
+                <div
+                  key={c.group_id}
+                  className="gcard"
+                  tabIndex={0}
+                  role="button"
+                  onClick={() => navigate('/member/group/' + c.group_id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/member/group/' + c.group_id); } }}
+                >
+                  <div className="gtop">
+                    <div className={'logo cat-' + c.category}>{CATEGORY_ICON[c.category] || '📦'}</div>
+                    <div className="gname">
+                      <b>{c.service_name}</b>
+                      <span className="mmeta"><span>สมาชิก {c.memberCount}/{c.max_slots} คน</span></span>
+                      {c.state === 'joined' && (
+                        <span className={'duechip' + (c.dueUrgent ? ' u' : '')}>{Icon.cal}{c.dueText}</span>
+                      )}
+                    </div>
+                    <span className={'badge ' + badge.cls}>{badge.text}</span>
+                  </div>
+                  <div className="gbot">
+                    <span className="seats">ยอดที่คุณต้องจ่าย/เดือน</span>
+                    <span className="mshare">{baht(c.share)} <small>บาท</small></span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </main>

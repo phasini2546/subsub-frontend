@@ -198,5 +198,72 @@ export function ResultOverlay({ open, variant = 'success', title, message, child
   );
 }
 
+/* ---------- ย่อรูปสลิปเป็น data URL ขนาดเล็ก (กัน localStorage เต็ม → สลิปหาย) ---------- */
+export const compressImage = (file: File, max = 900, quality = 0.7): Promise<string> =>
+  new Promise(resolve => {
+    if (!file.type.startsWith('image/')) { resolve(''); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      URL.revokeObjectURL(url);
+      if (!ctx) { resolve(''); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      try { resolve(cv.toDataURL('image/jpeg', quality)); } catch { resolve(''); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(''); };
+    img.src = url;
+  });
+
+/* ---------- ตรวจไฟล์สลิป: ชนิด + ขนาด (ข้อ 4) ---------- */
+export const SLIP_ACCEPT = 'image/jpeg,image/png,application/pdf';
+export const SLIP_MAX_MB = 5;
+export function validateSlip(file: File | null): { ok: boolean; reason?: string } {
+  if (!file) return { ok: false, reason: 'กรุณาแนบไฟล์สลิปก่อนส่งหลักฐาน' };
+  const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+  if (!allowed.includes(file.type)) {
+    return { ok: false, reason: 'รองรับเฉพาะไฟล์ JPG, PNG หรือ PDF เท่านั้น กรุณาเลือกไฟล์ใหม่' };
+  }
+  if (file.size > SLIP_MAX_MB * 1024 * 1024) {
+    return { ok: false, reason: `ไฟล์มีขนาดใหญ่เกินไป (สูงสุด ${SLIP_MAX_MB}MB) กรุณาเลือกไฟล์ที่เล็กลง` };
+  }
+  return { ok: true };
+}
+
+/* ---------- ผลลัพธ์แบบฝังในหน้า (แทน pop-up) — ข้อ 4,7 ---------- */
+export function InlineResult({
+  variant, title, message, waiting, primary, retry,
+}: {
+  variant: 'success' | 'error';
+  title: string;
+  message?: string;
+  waiting?: string;                                   // ข้อความแถบ "รอการอนุมัติ"
+  primary?: { label: string; onClick: () => void };   // ปุ่มหลัก (สำเร็จ)
+  retry?: { label: string; onClick: () => void };     // ปุ่มลองใหม่ (ไม่สำเร็จ)
+}) {
+  const err = variant === 'error';
+  return (
+    <div className={'mresult ' + (err ? 'err' : 'ok')}>
+      <div className="mresult-ic">
+        <div className="in">{err ? MIcon.xbig : MIcon.check}</div>
+      </div>
+      <h3>{title}</h3>
+      {message && <p>{message}</p>}
+      {waiting && (
+        <div className="mresult-wait"><span className="dot" />{waiting}</div>
+      )}
+      {primary && <button className="cta" onClick={primary.onClick}>{primary.label}</button>}
+      {retry && (
+        <button className="retry" onClick={retry.onClick}>{MIcon.upload}{retry.label}</button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- format ยอดเงิน 2 ตำแหน่ง ---------- */
 export const th2 = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 });

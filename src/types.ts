@@ -47,6 +47,9 @@ export interface Member {
   role: Role;
   status: MemberStatus;
   leaving?: boolean;        // [M4] ธงชั่วคราวแทน leave_requested_at
+  _leave_effective?: string;  // [ชั่วคราว] วันที่มีผลออกจริง (วันตัดรอบถัดไป) — ใช้ปล่อย slot อัตโนมัติ
+  _leave_at?: string;         // [ชั่วคราว] วันที่กดแจ้งออก (ใช้เช็คว่าเลยวันตัดรอบหรือยังตอนยกเลิก)
+  _owe_full?: boolean;        // [ชั่วคราว] ยกเลิกออกหลังใช้เงินประกันแล้ว → รอบถัดไปต้องจ่ายเต็ม + เติมเงินประกัน
   left_date?: string | null;  // [ใหม่] วันที่ออกจากกลุ่ม — null=ยังอยู่ (ทาง B)
 }
 
@@ -119,6 +122,7 @@ export interface Subscription {
   price: string;
   billing_date: string;      // วันเริ่มบันทึก
   category: Category;
+  _billing_cycle?: string;   // [ชั่วคราว] รอบบิล: 'monthly' | 'yearly' (คิดวันครบกำหนด)
   end_date?: string | null;  // [ใหม่] วันที่ลบ/ยกเลิก — null=ยังบันทึกอยู่ (ทาง B)
 }
 
