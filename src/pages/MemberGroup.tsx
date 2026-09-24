@@ -153,6 +153,12 @@ export default function MemberGroup() {
     await reload(gid);
     show('ยกเลิกคำขอออกแล้ว — คุณยังเป็นสมาชิกกลุ่มตามปกติ');
   };
+  /* [DEV] จำลองโฮสต์กด "ขึ้นรอบบิลใหม่" → archive payment เก่า → สถานะจ่ายเงินรีเซ็ตทั้งกลุ่ม */
+  const newCycleSim = async () => {
+    await DB.startNewCycle(gid);
+    await reload(gid);
+    show('โฮสต์ขึ้นรอบบิลใหม่แล้ว — สถานะจ่ายเงินรีเซ็ต ต้องชำระรอบใหม่');
+  };
 
 
   const uploaderBlock = (
@@ -350,6 +356,12 @@ export default function MemberGroup() {
                 <button className="mleave" onClick={() => setLeaveConfirm(true)}>
                   แจ้งความประสงค์ออกจากกลุ่ม คลิกที่นี่{MIcon.chevron}
                 </button>
+
+                {import.meta.env.DEV && (
+                  <div className="simrow" style={{ marginTop: 12 }}>
+                    <button className="verify-sim" onClick={newCycleSim}>▶︎ จำลอง: โฮสต์ขึ้นรอบบิลใหม่</button>
+                  </div>
+                )}
               </>
             )}
           </>
