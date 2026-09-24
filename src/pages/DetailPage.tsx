@@ -133,6 +133,16 @@ export default function DetailPage() {
     return `ครบกำหนด ${dt} · อีก ${b.days_until} วัน`;
   };
 
+  /* แสดงสลิป: ถ้าเป็นรูปจริง (data URL ที่สมาชิกอัปมา) โชว์รูปจริง, ไม่งั้น placeholder (สลิปทดสอบ) */
+  const slipView = (url?: string | null) =>
+    url && url.startsWith('data:')
+      ? (
+        <div className="slip" style={{ padding: 0, background: 'none', minHeight: 0 }}>
+          <img src={url} alt="สลิปการโอนเงิน" style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+        </div>
+      )
+      : <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>;
+
   return (
     <div className="phone">
       <header className="topbar">
@@ -258,7 +268,7 @@ export default function DetailPage() {
           <div className="modal">
             <div className="modal-head"><h3>ตรวจสอบสลิป</h3>
               <button className="x" onClick={() => setSlip(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>
+            {slipView(slip.payment?.slip_url)}
             <div className="slipmeta">
               <div className="av filled" />
               <div className="who"><b>{slip.name}</b><span>อัปโหลดเมื่อ {slip.payment ? fmtDateTime(slip.payment.paid_at) : '-'}</span></div>
@@ -303,7 +313,7 @@ export default function DetailPage() {
           <div className="modal">
             <div className="modal-head"><h3>สลิปที่อนุมัติแล้ว</h3>
               <button className="x" onClick={() => setApproved(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>
+            {slipView(approved.currentPayment?.slip_url)}
             <div className="slipmeta">
               <div className="av filled" />
               <div className="who"><b>{approved.user.display_name}</b><span>ยืนยันแล้วเมื่อ {approved.currentPayment ? fmtDateTime(approved.currentPayment.paid_at) : '-'}</span></div>

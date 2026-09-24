@@ -104,6 +104,34 @@ function genInviteCode(): string {
 }
 const today = (): string => new Date().toISOString().slice(0, 10);
 
+/* รูปสลิปตัวอย่าง (SVG data URL) — ใช้กับปุ่มทดสอบ/ข้อมูลสาธิต ให้โฮสต์เห็นเป็น "รูปจริง" ไม่ใช่ path ปลอม
+   ของจริง: slip_url = รูปที่สมาชิกอัปโหลด (data URL) จาก submitMemberSlip */
+function sampleSlip(amount: string, fromName: string = 'สมาชิก'): string {
+  const amt = Number(amount).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+  const svg =
+`<svg xmlns="http://www.w3.org/2000/svg" width="340" height="440" font-family="'Noto Sans Thai',sans-serif">
+<rect width="340" height="440" rx="16" fill="#F7FBF4"/>
+<rect width="340" height="86" fill="#1E9E4A"/><rect y="60" width="340" height="26" fill="#1E9E4A"/>
+<circle cx="170" cy="42" r="21" fill="#fff"/>
+<path d="M161 42l7 7 12-14" stroke="#1E9E4A" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="170" y="114" text-anchor="middle" font-size="17" font-weight="700" fill="#1E9E4A">โอนเงินสำเร็จ</text>
+<text x="170" y="134" text-anchor="middle" font-size="11" fill="#8A8A8A">สลิปโอนผ่านโมบายแบงก์กิ้ง</text>
+<line x1="24" y1="156" x2="316" y2="156" stroke="#E0E0E0" stroke-dasharray="4 4"/>
+<text x="24" y="186" font-size="11" fill="#9A9A9A">จาก</text>
+<text x="24" y="206" font-size="14" font-weight="600" fill="#1C1C1C">${fromName}</text>
+<text x="24" y="224" font-size="11" fill="#9A9A9A">ธ.กสิกรไทย xxx-x-x1234-x</text>
+<text x="24" y="258" font-size="11" fill="#9A9A9A">ไปยัง</text>
+<text x="24" y="278" font-size="14" font-weight="600" fill="#1C1C1C">สมชาย ไดมอนด์</text>
+<text x="24" y="296" font-size="11" fill="#9A9A9A">ธ.กสิกรไทย 123-4-56789-0</text>
+<line x1="24" y1="320" x2="316" y2="320" stroke="#E0E0E0" stroke-dasharray="4 4"/>
+<text x="24" y="352" font-size="12" fill="#7A7A7A">จำนวนเงิน</text>
+<text x="316" y="357" text-anchor="end" font-size="24" font-weight="800" fill="#1E9E4A">${amt} ฿</text>
+<text x="24" y="394" font-size="10" fill="#B4B4B4">เลขที่รายการ 015089A7B2569</text>
+<text x="24" y="412" font-size="10" fill="#B4B4B4">SubSub · สลิปตัวอย่างสำหรับทดสอบ</text>
+</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
 /* หมวดหมู่ (อังกฤษใน DB) → label ไทย สำหรับ Dashboard */
 export const CATEGORY_LABEL: Record<Category, string> = {
   Entertainment: 'บันเทิง',
@@ -362,7 +390,7 @@ export const DB = {
     write<Member>('member', members);
     const amt = (pricingNow(g).price * 2).toFixed(2);   // ราคาที่มีผลตอนนี้ × 2 (ค่าบริการ + เงินประกัน)
     payments.push({ payment_id: uuid(), group_id: groupId, user_id: uid,
-      amount: amt, slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+      amount: amt, slip_url: sampleSlip(amt, name), status: 'Waiting', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
     return true;
   },
@@ -391,7 +419,7 @@ export const DB = {
     const amt = (Number(g.total_price) * 2).toFixed(2);   // ค่าบริการ + เงินประกัน [M6]
     payments.push({
       payment_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
-      amount: amt, slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString(),
+      amount: amt, slip_url: sampleSlip(amt, ME.display_name), status: 'Waiting', paid_at: new Date().toISOString(),
     });
     write<Payment>('payment', payments);
     return 'ok';
@@ -677,9 +705,9 @@ export const DB = {
     write<Member>('member', members);
 
     const payments = read<Payment>('payment');
-    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: aId, amount: '99.00', slip_url: '/slips/demo.jpg', status: 'Verified', paid_at: new Date().toISOString() });
-    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: bId, amount: '99.00', slip_url: '/slips/demo.jpg', status: 'Verified', paid_at: new Date().toISOString() });
-    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: cId, amount: '99.00', slip_url: '/slips/demo.jpg', status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: aId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก A'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: bId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก B'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: cId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก C'), status: 'Verified', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
     return g;
   },
@@ -826,7 +854,7 @@ export const DB = {
     if (!g) return false;
     const payments = read<Payment>('payment');
     payments.push({ payment_id: uuid(), group_id: groupId, user_id: userId,
-      amount: pricingNow(g).price.toFixed(2), slip_url: '/slips/demo.jpg',   // ราคาที่มีผลรอบนี้
+      amount: pricingNow(g).price.toFixed(2), slip_url: sampleSlip(pricingNow(g).price.toFixed(2)),   // ราคาที่มีผลรอบนี้
       status: 'Waiting', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
     return true;
@@ -1003,8 +1031,8 @@ export const DB = {
     write<Member>('member', members);
 
     const payments = read<Payment>('payment');
-    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: memId, amount: '149.00', slip_url: '/slips/demo.jpg', status: 'Verified', paid_at: new Date().toISOString() });
-    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: reqId, amount: '298.00', slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: memId, amount: '149.00', slip_url: sampleSlip('149.00', 'สมาชิก A'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: reqId, amount: '298.00', slip_url: sampleSlip('298.00', 'ผู้ขอเข้า B'), status: 'Waiting', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
 
     return { group: g, code };
