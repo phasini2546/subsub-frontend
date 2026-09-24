@@ -130,5 +130,6 @@ export interface Subscription {
 export interface DashboardData {
   monthTotal: number;                              // ค่าใช้จ่ายเดือนนี้ (รวมทุกหมวด)
   yearTotal: number;                               // ค่าใช้จ่ายรายปี (นับเดือนสะสม)
+  prevMonthTotal: number;                          // ค่าใช้จ่ายเดือนก่อน (ไว้เทียบ ↑↓ %)
   byCategory: { category: Category; label: string; amount: number; percent: number }[];
 }

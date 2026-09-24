@@ -303,6 +303,14 @@ body{
 .dash-hero-label{font-size:14px;font-weight:500;opacity:.95}
 .dash-hero-amount{font-size:34px;font-weight:700;letter-spacing:-.01em;margin-top:4px}
 .dash-hero-amount span{font-size:16px;font-weight:500}
+/* ป้ายเทียบกับเดือนก่อน (บนการ์ด hero สีเขียว) */
+.dash-diff{display:inline-flex;align-items:center;gap:5px;margin-top:9px;
+  padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:700;line-height:1;
+  background:rgba(255,255,255,.94);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.dash-diff-arw{font-size:13px;font-weight:800}
+.dash-diff.up{color:#C7600A}      /* ค่าใช้จ่ายเพิ่ม = ส้ม (ตามธีมเหลือง-ส้ม) */
+.dash-diff.down{color:#1F8A3B}    /* ค่าใช้จ่ายลด = เขียว (ตามธีมแบรนด์) */
+.dash-diff.same,.dash-diff.new{background:rgba(255,255,255,.22);color:#fff}
 .dash-hero-divider{height:1px;background:rgba(255,255,255,.35);margin:16px 0 12px}
 .dash-hero-year{font-size:13px;font-weight:500;opacity:.95}
 .dash-hero-year b{font-weight:700}

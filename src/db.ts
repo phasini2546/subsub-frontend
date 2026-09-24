@@ -712,6 +712,50 @@ export const DB = {
     return g;
   },
 
+  /* [DEV] จำลองข้อมูล "เดือนก่อน" เพื่อทดสอบป้ายเทียบ % บน Dashboard
+     dir='up'   → เดือนก่อนถูก, เดือนนี้แพง → โชว์ ↑ เพิ่มขึ้น
+     dir='down' → เดือนก่อนแพง, เดือนนี้ถูก → โชว์ ↓ ลดลง
+     ME เข้าเป็นสมาชิกตั้งแต่ 2 เดือนก่อน (active ทั้งเดือนก่อนและเดือนนี้)
+     idempotent: ลบกลุ่มจำลองเดิมก่อนทุกครั้ง จึงสลับทิศได้ */
+  devSeedPrevMonthCompare(dir: 'up' | 'down', now: Date = new Date()): void {
+    DB.devClearPrevMonthCompare();
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const startKey = monthKey(twoMonthsAgo);      // ราคาเริ่มมีผลตั้งแต่ 2 เดือนก่อน
+    const thisKey  = monthKey(now);               // ราคาชุดใหม่มีผลเดือนนี้
+    const slots = 4;
+    const prevPerHead = dir === 'up' ? 100 : 800; // ต่อหัวเดือนก่อน
+    const curPerHead  = dir === 'up' ? 400 : 100; // ต่อหัวเดือนนี้
+    const g: Group = {
+      group_id: uuid(), user_id: uuid(), service_name: 'ทดสอบเทียบเดือน',
+      total_price: (curPerHead * slots).toFixed(2), max_slots: slots,
+      billing_date: today(), invite_code: 'PREVDEMO', category: 'Other',
+      bankDT: 'ธนาคารกสิกรไทย (KBANK) 000-0-00000-0 ทดสอบ ระบบ',
+      _billing_cycle: 'monthly', _deposit: curPerHead.toFixed(2),
+      _pricing_history: [
+        { from: startKey, price: (prevPerHead * slots).toFixed(2), max_slots: slots },
+        { from: thisKey,  price: (curPerHead  * slots).toFixed(2), max_slots: slots },
+      ],
+    };
+    const groups = read<Group>('group'); groups.push(g); write<Group>('group', groups);
+    const members = read<Member>('member');
+    members.push({
+      member_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      joined_date: twoMonthsAgo.toISOString().slice(0, 10),
+      role: 'Member', status: 'Active', left_date: null,
+    });
+    write<Member>('member', members);
+  },
+
+  /* [DEV] ลบกลุ่มจำลองเทียบเดือน (invite_code = PREVDEMO) พร้อมสมาชิก/สลิป */
+  devClearPrevMonthCompare(): void {
+    const groups = read<Group>('group');
+    const demo = groups.find(x => x.invite_code === 'PREVDEMO');
+    if (!demo) return;
+    write<Group>('group', groups.filter(x => x.group_id !== demo.group_id));
+    write<Member>('member', read<Member>('member').filter(m => m.group_id !== demo.group_id));
+    write<Payment>('payment', read<Payment>('payment').filter(p => p.group_id !== demo.group_id));
+  },
+
 
   async approvePayment(groupId: string, userId: string): Promise<boolean> {
     const payments = read<Payment>('payment');
@@ -916,11 +960,16 @@ export const DB = {
     const yearly: Record<Category, number> = { Entertainment: 0, Music: 0, Productivity: 0, Other: 0 };
 
     const monthIdxNow = now.getFullYear() * 12 + now.getMonth();
-    const isActiveThisMonth = (startISO: string, endISO: string | null | undefined) => {
-      const s = new Date(startISO); const sIdx = s.getFullYear() * 12 + s.getMonth();
+    const prevIdx = monthIdxNow - 1;                 // ดัชนีเดือนก่อนหน้า (เอาไว้เทียบ %)
+    let prevTotal = 0;                               // ยอดรวมของเดือนก่อน (ทุกหมวด)
+    // active ณ เดือน idx ใด ๆ (ใช้ทั้งเดือนนี้และเดือนก่อน)
+    const activeInMonth = (startISO: string, endISO: string | null | undefined, idx: number) => {
+      const sIdx = new Date(startISO).getFullYear() * 12 + new Date(startISO).getMonth();
       const eIdx = endISO ? (new Date(endISO).getFullYear() * 12 + new Date(endISO).getMonth()) : monthIdxNow;
-      return sIdx <= monthIdxNow && monthIdxNow <= eIdx;
+      return sIdx <= idx && idx <= eIdx;
     };
+    const isActiveThisMonth = (startISO: string, endISO: string | null | undefined) =>
+      activeInMonth(startISO, endISO, monthIdxNow);
 
     for (const m of members) {
       const g = groups.find(x => x.group_id === m.group_id);
@@ -929,6 +978,11 @@ export const DB = {
       if (isActiveThisMonth(m.joined_date, m.left_date)) {
         const pm = pricingForMonth(g, monthIdxNow);
         month[g.category] += pm.price / pm.slots;
+      }
+      // เดือนก่อน: ค่าต่อหัวตามราคาที่มีผลเดือนนั้น (ไว้เทียบแนวโน้ม)
+      if (activeInMonth(m.joined_date, m.left_date, prevIdx)) {
+        const pm = pricingForMonth(g, prevIdx);
+        prevTotal += pm.price / pm.slots;
       }
       // รายปี: รวมค่าต่อหัวรายเดือนที่ active ในปีนั้น โดยใช้ราคาตามแต่ละเดือน (ไม่ย้อนหลัง)
       const sIdx = new Date(m.joined_date).getFullYear() * 12 + new Date(m.joined_date).getMonth();
@@ -947,6 +1001,7 @@ export const DB = {
     for (const s of subs) {
       const price = Number(s.price);
       if (isActiveThisMonth(s.billing_date, s.end_date)) month[s.category] += price;
+      if (activeInMonth(s.billing_date, s.end_date, prevIdx)) prevTotal += price;
       const mo = activeMonthsInYear(s.billing_date, s.end_date, year, now);
       yearly[s.category] += price * mo;
     }
@@ -957,7 +1012,7 @@ export const DB = {
       category: c, label: CATEGORY_LABEL[c], amount: month[c],
       percent: monthTotal > 0 ? Math.round((month[c] / monthTotal) * 100) : 0,
     }));
-    return { monthTotal, yearTotal, byCategory };
+    return { monthTotal, yearTotal, prevMonthTotal: prevTotal, byCategory };
   },
 
   /* GET /api/dashboard/history — ยอดรวมย้อนหลัง 6 เดือน (นับตรง ไม่ตัดปี)
