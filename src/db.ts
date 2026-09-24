@@ -18,6 +18,41 @@ import type {
   Subscription, DashboardData, Category,
 } from './types';
 
+/* แถวกลุ่มฝั่งสมาชิก (แท็บ MEMBER) */
+export interface MemberQuote {
+  share: number;         // ราคาหารต่อหัวเต็มเดือน
+  deposit: number;       // เงินประกัน (= share เต็ม)
+  firstAmount: number;   // ค่าบริการเดือนแรก (อาจถูกคิดตามสัดส่วนวัน)
+  totalDue: number;      // ยอดรวมที่ต้องชำระแรกเข้า
+  fullPrice: number;     // ราคาเต็มทั้งกลุ่ม
+  slots: number;         // จำนวนช่องที่หาร
+  prorated: boolean;     // true = เข้ากลางรอบ คิดตามสัดส่วนวัน
+  usedDays: number;      // จำนวนวันที่คิดค่าบริการเดือนแรก
+  daysInMonth: number;   // จำนวนวันในเดือนนั้น
+}
+
+export interface MemberGroupRow {
+  group_id: string;
+  service_name: string;
+  category: Category;
+  fullPrice: number;     // ราคาเต็มทั้งกลุ่ม/เดือน
+  slots: number;         // จำนวนช่องที่คิดราคาหาร
+  share: number;         // ราคาหารต่อหัว
+  memberCount: number;   // สมาชิก active ปัจจุบัน
+  max_slots: number;     // จำนวนช่องสูงสุด
+  status: 'Active' | 'Inactive' | 'Pending';  // สถานะสมาชิกของฉัน
+  paid: boolean;         // จ่ายรอบล่าสุดแล้ว (Verified)
+  state: MemberCardState;// สถานะการ์ด (pending/rejected/joined/leaving)
+  dueLabel: string;      // (คงไว้เพื่อความเข้ากันได้) 'วันนี้' หรือ 'd/สิ้นเดือน'
+  daysUntil: number;     // จำนวนวันถึงกำหนดชำระ
+  nearDue: boolean;      // เหลือ ≤3 วัน
+  dueText: string;       // ข้อความมาตรฐาน เช่น 'ครบกำหนด อีก 29 วัน'
+  dueUrgent: boolean;    // ≤3 วัน/เลยกำหนด → แสดงแดงเข้ม
+}
+
+/* สถานะการ์ดกลุ่มฝั่งสมาชิก */
+export type MemberCardState = 'pending' | 'rejected' | 'joined' | 'leaving';
+
 /* localStorage keys = ชื่อตาราง */
 const K = {
   user:    'subsub_user',
@@ -38,7 +73,21 @@ function read<T>(t: TableKey): T[] {
   catch { return []; }
 }
 function write<T>(t: TableKey, rows: T[]): void {
-  localStorage.setItem(K[t], JSON.stringify(rows));
+  try { localStorage.setItem(K[t], JSON.stringify(rows)); }
+  catch { /* localStorage เต็ม/ถูกบล็อก — best-effort */ }
+}
+
+/* ปล่อยสมาชิกที่กำลังจะออก เมื่อถึง/เลยวันมีผล → ใส่ left_date (slot ว่างอย่างเป็นทางการ) */
+function reconcileLeaves(): void {
+  const rows = JSON.parse(localStorage.getItem(K.member) || '[]') as Member[];
+  const t = new Date().toISOString().slice(0, 10);
+  let changed = false;
+  for (const m of rows) {
+    if (m.leaving && !m.left_date && m._leave_effective && m._leave_effective <= t) {
+      m.left_date = t; m.leaving = false; delete m._leave_effective; changed = true;
+    }
+  }
+  if (changed) { try { localStorage.setItem(K.member, JSON.stringify(rows)); } catch { /* best-effort */ } }
 }
 
 /* seed ผู้ใช้ครั้งแรก */
@@ -54,6 +103,34 @@ function genInviteCode(): string {
   return 'SUB-' + s.padEnd(4, 'X');
 }
 const today = (): string => new Date().toISOString().slice(0, 10);
+
+/* รูปสลิปตัวอย่าง (SVG data URL) — ใช้กับปุ่มทดสอบ/ข้อมูลสาธิต ให้โฮสต์เห็นเป็น "รูปจริง" ไม่ใช่ path ปลอม
+   ของจริง: slip_url = รูปที่สมาชิกอัปโหลด (data URL) จาก submitMemberSlip */
+function sampleSlip(amount: string, fromName: string = 'สมาชิก'): string {
+  const amt = Number(amount).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+  const svg =
+`<svg xmlns="http://www.w3.org/2000/svg" width="340" height="440" font-family="'Noto Sans Thai',sans-serif">
+<rect width="340" height="440" rx="16" fill="#F7FBF4"/>
+<rect width="340" height="86" fill="#1E9E4A"/><rect y="60" width="340" height="26" fill="#1E9E4A"/>
+<circle cx="170" cy="42" r="21" fill="#fff"/>
+<path d="M161 42l7 7 12-14" stroke="#1E9E4A" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="170" y="114" text-anchor="middle" font-size="17" font-weight="700" fill="#1E9E4A">โอนเงินสำเร็จ</text>
+<text x="170" y="134" text-anchor="middle" font-size="11" fill="#8A8A8A">สลิปโอนผ่านโมบายแบงก์กิ้ง</text>
+<line x1="24" y1="156" x2="316" y2="156" stroke="#E0E0E0" stroke-dasharray="4 4"/>
+<text x="24" y="186" font-size="11" fill="#9A9A9A">จาก</text>
+<text x="24" y="206" font-size="14" font-weight="600" fill="#1C1C1C">${fromName}</text>
+<text x="24" y="224" font-size="11" fill="#9A9A9A">ธ.กสิกรไทย xxx-x-x1234-x</text>
+<text x="24" y="258" font-size="11" fill="#9A9A9A">ไปยัง</text>
+<text x="24" y="278" font-size="14" font-weight="600" fill="#1C1C1C">สมชาย ไดมอนด์</text>
+<text x="24" y="296" font-size="11" fill="#9A9A9A">ธ.กสิกรไทย 123-4-56789-0</text>
+<line x1="24" y1="320" x2="316" y2="320" stroke="#E0E0E0" stroke-dasharray="4 4"/>
+<text x="24" y="352" font-size="12" fill="#7A7A7A">จำนวนเงิน</text>
+<text x="316" y="357" text-anchor="end" font-size="24" font-weight="800" fill="#1E9E4A">${amt} ฿</text>
+<text x="24" y="394" font-size="10" fill="#B4B4B4">เลขที่รายการ 015089A7B2569</text>
+<text x="24" y="412" font-size="10" fill="#B4B4B4">SubSub · สลิปตัวอย่างสำหรับทดสอบ</text>
+</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
 
 /* หมวดหมู่ (อังกฤษใน DB) → label ไทย สำหรับ Dashboard */
 export const CATEGORY_LABEL: Record<Category, string> = {
@@ -83,30 +160,56 @@ export function splitBankDT(s: string): { bank: string; account: string; holder:
 const daysInMonth = (y: number, m0: number): number => new Date(y, m0 + 1, 0).getDate();
 const clampDay = (y: number, m0: number, day: number): number => Math.min(day, daysInMonth(y, m0));
 
-export function nextDueDate(billingDate: string, from: Date = new Date()): Date {
-  const day = new Date(billingDate).getDate();
+export function cycleMonths(cycle?: string): number {
+  const c = (cycle || 'monthly').toLowerCase();
+  if (c.includes('year') || c.includes('annual')) return 12;
+  if (c.includes('quarter')) return 3;
+  if (c.includes('half') || c === '6') return 6;
+  const n = parseInt(c, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+function addMonthsClamped(d: Date, months: number): Date {
+  const m = d.getMonth() + months;
+  const ty = d.getFullYear() + Math.floor(m / 12);
+  const tm = ((m % 12) + 12) % 12;
+  return new Date(ty, tm, clampDay(ty, tm, d.getDate()));
+}
+/* วันครบกำหนดถัดไป: อ้างอิงวัน/เดือน/ปีเต็มของ billing_date แล้วเลื่อนทีละ cm เดือนจนถึง/เลยวันนี้
+   → รองรับรอบรายปี/รอบเกิน 1 เดือน (ไม่ตัดเช็คแค่รายเดือน) */
+export function nextDueDate(billingDate: string, from: Date = new Date(), cm: number = 1): Date {
+  const anchor = new Date(billingDate);
   const base = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-  let y = base.getFullYear(), m0 = base.getMonth();
-  let due = new Date(y, m0, clampDay(y, m0, day));
-  if (due < base) {
-    m0++; if (m0 > 11) { m0 = 0; y++; }
-    due = new Date(y, m0, clampDay(y, m0, day));
-  }
+  let due = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  const step = Math.max(1, cm);
+  let guard = 0;
+  while (due < base && guard++ < 1200) due = addMonthsClamped(due, step);
   return due;
 }
 
-export function daysUntilDue(billingDate: string, from: Date = new Date()): number {
-  const due = nextDueDate(billingDate, from);
+export function daysUntilDue(billingDate: string, from: Date = new Date(), cm: number = 1): number {
+  const due = nextDueDate(billingDate, from, cm);
   const base = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   return Math.round((due.getTime() - base.getTime()) / 86400000);
 }
 
-export function reminderState(billingDate: string, from: Date = new Date()): BillingInfo['reminder'] {
-  const d = daysUntilDue(billingDate, from);
+export function reminderState(billingDate: string, from: Date = new Date(), cm: number = 1): BillingInfo['reminder'] {
+  const d = daysUntilDue(billingDate, from, cm);
   if (d === 0) return 'due_today';
   if (d === 3) return 'due_in_3days';
   if (d < 0)   return 'overdue';
   return null;
+}
+
+/* รูปแบบข้อความ "ครบกำหนดชำระ" มาตรฐานเดียว ใช้ร่วมทั้ง Member และ Service
+   - เหลือ > 3 วัน → 'ครบกำหนด อีก N วัน' (สีปกติ)
+   - เหลือ ≤ 3 วัน / วันนี้ / เลยกำหนด → urgent = true (แสดงสีแดงเข้ม) */
+export function dueCountdown(billingDate: string, from: Date = new Date(), cm: number = 1): { text: string; urgent: boolean; days: number } {
+  const days = daysUntilDue(billingDate, from, cm);
+  if (days < 0) return { days, urgent: true, text: `เลยกำหนดชำระ ${Math.abs(days)} วัน` };
+  if (days === 0) return { days, urgent: true, text: 'ครบกำหนดชำระวันนี้' };
+  if (days < 30) return { days, urgent: days <= 3, text: `ครบกำหนด อีก ${days} วัน` };
+  const mo = Math.floor(days / 30); const rem = days % 30;
+  return { days, urgent: false, text: rem > 0 ? `ครบกำหนด อีก ${mo} เดือน ${rem} วัน` : `ครบกำหนด อีก ${mo} เดือน` };
 }
 
 /* =====================================================================
@@ -174,6 +277,7 @@ export const DB = {
   setMe: (u: User): void => { ME = u; write<User>('user', [u, ...read<User>('user').filter(x => x.user_id !== u.user_id)]); },
 
   async getMyGroups(): Promise<GroupRow[]> {
+    reconcileLeaves();
     const groups  = read<Group>('group');
     const members = read<Member>('member');
     const rows: GroupRow[] = [];
@@ -256,6 +360,7 @@ export const DB = {
   },
 
   async getGroup(id: string): Promise<GroupDetail | null> {
+    reconcileLeaves();
     const g = read<Group>('group').find(x => x.group_id === id);
     if (!g) return null;
     const users    = read<User>('user');
@@ -285,10 +390,372 @@ export const DB = {
     write<Member>('member', members);
     const amt = (pricingNow(g).price * 2).toFixed(2);   // ราคาที่มีผลตอนนี้ × 2 (ค่าบริการ + เงินประกัน)
     payments.push({ payment_id: uuid(), group_id: groupId, user_id: uid,
-      amount: amt, slip_url: '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+      amount: amt, slip_url: sampleSlip(amt, name), status: 'Waiting', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
     return true;
   },
+
+  /* POST /api/join — [MEMBER] เข้าร่วมกลุ่มด้วยรหัสเชิญ
+     หา group จาก invite_code แล้วเพิ่ม "ฉัน" เป็นสมาชิกสถานะ Pending
+     + สร้าง payment รอตรวจ (ค่าบริการ + เงินประกัน) เพื่อให้ Host อนุมัติ */
+  async joinByCode(code: string): Promise<'ok' | 'notfound' | 'full' | 'already'> {
+    const norm = code.trim().replace(/^#/, '').toUpperCase();
+    const g = read<Group>('group').find(x => x.invite_code.toUpperCase() === norm);
+    if (!g) return 'notfound';
+
+    const members = read<Member>('member');
+    if (members.some(m => m.group_id === g.group_id && m.user_id === ME.user_id && !m.left_date)) return 'already';
+
+    const active = members.filter(m => m.group_id === g.group_id && m.status === 'Active');
+    if (active.length >= g.max_slots) return 'full';
+
+    members.push({
+      member_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      joined_date: today(), role: 'Member', status: 'Pending',
+    });
+    write<Member>('member', members);
+
+    const payments = read<Payment>('payment');
+    const amt = (Number(g.total_price) * 2).toFixed(2);   // ค่าบริการ + เงินประกัน [M6]
+    payments.push({
+      payment_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      amount: amt, slip_url: sampleSlip(amt, ME.display_name), status: 'Waiting', paid_at: new Date().toISOString(),
+    });
+    write<Payment>('payment', payments);
+    return 'ok';
+  },
+
+  /* =====================================================================
+     [MEMBER] ตัวช่วยฝั่งสมาชิก (ขับหน้า Member ทั้งหมด ผ่าน DB จริง)
+     ===================================================================== */
+
+  /* หา group จาก id (อ่านอย่างเดียว) */
+  findGroupById(id: string): Group | null {
+    return read<Group>('group').find(x => x.group_id === id) ?? null;
+  },
+
+  /* หา group จากรหัสเชิญ (ไม่แก้ข้อมูล) — ใช้ตอนกรอกรหัสเข้าร่วม */
+  findGroupByCode(code: string): Group | null {
+    const norm = code.trim().replace(/^#/, '').replace(/\s/g, '').toUpperCase();
+    return read<Group>('group').find(x => x.invite_code.replace(/-/g, '').toUpperCase() === norm.replace(/-/g, '')) ?? null;
+  },
+
+  /* เช็คสถานะก่อนเข้าร่วม (อ่านอย่างเดียว) */
+  memberJoinStatus(groupId: string): 'ok' | 'full' | 'already' {
+    const members = read<Member>('member');
+    if (members.some(m => m.group_id === groupId && m.user_id === ME.user_id && !m.left_date)) return 'already';
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    const active = members.filter(m => m.group_id === groupId && m.status === 'Active' && !m.left_date);
+    if (g && active.length >= g.max_slots) return 'full';
+    return 'ok';
+  },
+
+  /* ราคาต่อหัว + ยอดแรกเข้า (ค่าบริการเดือนแรก + เงินประกัน) ต่อ 1 สมาชิก
+     - เข้าวันตัดรอบบิล → คิดค่าบริการเดือนแรกเต็มส่วนแบ่ง (share)
+     - เข้ากลางรอบบิล  → คิดตามสัดส่วนวันใช้งานจริง (share/วันในเดือน × วันคงเหลือ)
+     ทุกกรณี + เงินประกัน = 1 ส่วนแบ่งเต็ม */
+  memberQuote(groupId: string, now: Date = new Date()): MemberQuote | null {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    if (!g) return null;
+    const info = priceInfo(g);
+    const slots = Math.max(1, info.slotsNow);
+    const share = info.now / slots;
+    const dim = daysInMonth(now.getFullYear(), now.getMonth());
+    const remaining = daysUntilDue(g.billing_date, now);   // 0 = ครบกำหนดวันนี้ (เข้าวันตัดรอบ)
+    let firstAmount = share, usedDays = dim, prorated = false;
+    if (remaining > 0) {
+      usedDays = Math.min(dim, remaining + 1);   // นับวันใช้งานจริงแบบรวมวันตัดรอบ
+      firstAmount = (share / dim) * usedDays;
+      prorated = true;
+    }
+    const deposit = share;
+    return {
+      share, deposit, firstAmount, totalDue: firstAmount + deposit,
+      fullPrice: info.now, slots, prorated, usedDays, daysInMonth: dim,
+    };
+  },
+
+  /* [MEMBER] ส่งคำขอเข้าร่วม + แนบสลิป → เพิ่ม ME เป็นสมาชิก Pending + payment Waiting */
+  joinGroupWithSlip(groupId: string, slipUrl: string): 'ok' | 'full' | 'already' | 'notfound' {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    if (!g) return 'notfound';
+    const pre = DB.memberJoinStatus(groupId);
+    if (pre !== 'ok') return pre;
+    const members = read<Member>('member');
+    members.push({ member_id: uuid(), group_id: groupId, user_id: ME.user_id,
+      joined_date: today(), role: 'Member', status: 'Pending', left_date: null });
+    write<Member>('member', members);
+    const q = DB.memberQuote(groupId);
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: groupId, user_id: ME.user_id,
+      amount: (q ? q.totalDue : Number(g.total_price) * 2).toFixed(2),
+      slip_url: slipUrl || '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+    return 'ok';
+  },
+
+  /* [MEMBER] แนบสลิปรอบถัดไป (สมาชิกที่อนุมัติแล้ว) → payment Waiting ใหม่ */
+  memberPayWithSlip(groupId: string, slipUrl: string): boolean {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    if (!g) return false;
+    const q = DB.memberQuote(groupId);
+    const base = q ? q.share : Number(g.total_price);
+    const amount = DB.myOweFull(groupId) ? base * 2 : base;   // เติมเงินประกันถ้าค้างจากการยกเลิกออก
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: groupId, user_id: ME.user_id,
+      amount: amount.toFixed(2),
+      slip_url: slipUrl || '/slips/demo.jpg', status: 'Waiting', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+    return true;
+  },
+
+  /* สลิปล่าสุดของ ME ในกลุ่มนี้ (data URL ถ้ามี) */
+  myLatestSlip(groupId: string): string | null {
+    const p = read<Payment>('payment')
+      .filter(x => x.group_id === groupId && x.user_id === ME.user_id && !x._archived)
+      .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0];
+    return p && p.slip_url && p.slip_url.startsWith('data:') ? p.slip_url : null;
+  },
+
+  /* จ่าย (Verified) สำหรับ "รอบบิลปัจจุบัน" แล้วหรือยัง — กันส่งสลิปซ้ำในรอบเดียวกัน
+     รอบปัจจุบันเริ่มที่วันตัดรอบล่าสุดที่ <= วันนี้ (payment ก่อนหน้านั้นถือเป็นรอบก่อน) */
+  paidCurrentCycle(groupId: string, now: Date = new Date()): boolean {
+    return DB.paidCurrentCycleFor(groupId, ME.user_id, now);
+  },
+
+  /* จ่าย (Verified) รอบบิลปัจจุบันแล้วหรือยัง สำหรับสมาชิกคนใดก็ได้ (ใช้ให้ roster ตรงกับรอบจริง) */
+  paidCurrentCycleFor(groupId: string, userId: string, now: Date = new Date()): boolean {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    if (!g) return false;
+    const day = new Date(g.billing_date).getDate();
+    let y = now.getFullYear(), mo = now.getMonth();
+    let cut = new Date(y, mo, clampDay(y, mo, day));
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (cut.getTime() > base.getTime()) { mo--; if (mo < 0) { mo = 11; y--; } cut = new Date(y, mo, clampDay(y, mo, day)); }
+    const p = read<Payment>('payment')
+      .filter(x => x.group_id === groupId && x.user_id === userId && !x._archived && x.status === 'Verified')
+      .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0];
+    return !!p && new Date(p.paid_at).getTime() >= cut.getTime();
+  },
+
+  /* สมาชิกคนนี้ "จ่ายแล้ว/ยังใช้งานได้" ไหม = payment ล่าสุด (ไม่ archived) เป็น Verified
+     ใช้ตอนนอกช่วงเก็บเงิน เพื่อไม่ให้สมาชิกที่จ่ายรอบก่อนขึ้น "ยังไม่จ่าย" ทั้งกลุ่ม */
+  isSettled(groupId: string, userId: string): boolean {
+    const p = read<Payment>('payment')
+      .filter(x => x.group_id === groupId && x.user_id === userId && !x._archived)
+      .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0];
+    return p?.status === 'Verified';
+  },
+
+  /* สถานะ payment ล่าสุดของ ME ในกลุ่มนี้ (คงอยู่ใน localStorage → รอด refresh) */
+  myPaymentStatus(groupId: string): 'Verified' | 'Waiting' | 'Rejected' | null {
+    const p = read<Payment>('payment')
+      .filter(x => x.group_id === groupId && x.user_id === ME.user_id && !x._archived)
+      .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0];
+    return p ? p.status : null;
+  },
+
+  /* [MEMBER] ส่งสลิป (ครั้งแรก/รอบเดือน/ส่งใหม่หลังถูกปฏิเสธ) → payment Waiting ใหม่
+     - ยัง Pending (แรกเข้า) → คิดยอดแรกเข้า (ค่าบริการ + เงินประกัน)
+     - Active (รอบเดือน)     → คิดยอดหารต่อหัว */
+  submitMemberSlip(groupId: string, slipUrl: string): boolean {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    if (!g) return false;
+    const mine = read<Member>('member').find(m => m.group_id === groupId && m.user_id === ME.user_id && !m.left_date);
+    const q = DB.memberQuote(groupId);
+    const amount = mine && mine.status === 'Pending'
+      ? (q ? q.totalDue : Number(g.total_price) * 2)            // แรกเข้า: ค่าบริการ + เงินประกัน
+      : mine && mine._owe_full
+        ? (q ? q.share + q.deposit : Number(g.total_price))     // ยกเลิกออกหลังใช้เงินประกัน: จ่ายเต็ม + เติมเงินประกัน
+        : (q ? q.share : Number(g.total_price));                // รอบเดือนปกติ: ค่าบริการหารต่อหัว
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: groupId, user_id: ME.user_id,
+      amount: amount.toFixed(2), slip_url: slipUrl || '/slips/demo.jpg',
+      status: 'Waiting', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+    return true;
+  },
+
+  /* [MEMBER] ยกเลิกการส่งหลักฐาน (สถานะกำลังตรวจสอบ) → ลบ payment Waiting ล่าสุด
+     กลับไปสถานะ "ยังไม่ส่งสลิป" เพื่อเปลี่ยนรูป/อัปโหลดใหม่ (ยังอยู่ในกลุ่ม) */
+  cancelSlip(groupId: string): boolean {
+    const payments = read<Payment>('payment');
+    const mine = payments.filter(p => p.group_id === groupId && p.user_id === ME.user_id && !p._archived)
+      .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1));
+    const latest = mine[0];
+    if (!latest || latest.status !== 'Waiting') return false;
+    write<Payment>('payment', payments.filter(p => p.payment_id !== latest.payment_id));
+    return true;
+  },
+
+  /* [MEMBER] ยกเลิกการสมัครเข้ากลุ่ม (ยังไม่อนุมัติ) → นำ ME ออก + ลบ payment ทั้งหมดในกลุ่ม
+     ใช้ตอนถูกปฏิเสธแล้วเลือกไม่ส่งใหม่ */
+  cancelJoin(groupId: string): boolean {
+    const members = read<Member>('member');
+    const mine = members.find(m => m.group_id === groupId && m.user_id === ME.user_id && !m.left_date);
+    if (!mine || mine.status === 'Active') return false;   // อนุมัติแล้วต้องใช้ requestLeave แทน
+    write<Member>('member', members.filter(m => m.member_id !== mine.member_id));
+    write<Payment>('payment', read<Payment>('payment').filter(p => !(p.group_id === groupId && p.user_id === ME.user_id)));
+    return true;
+  },
+
+  /* [DEV] จำลองโฮสต์ปฏิเสธสลิปล่าสุดของ ME (ทดสอบ state ถูกปฏิเสธ) */
+  async devRejectMyLatest(groupId?: string): Promise<number> {
+    const members = read<Member>('member').filter(m => m.user_id === ME.user_id && !m.left_date);
+    const targets = groupId ? members.filter(m => m.group_id === groupId) : members;
+    let n = 0;
+    for (const m of targets) {
+      const has = read<Payment>('payment').some(p => p.group_id === m.group_id && p.user_id === ME.user_id && !p._archived && p.status === 'Waiting');
+      if (has) { await DB.rejectPayment(m.group_id, ME.user_id, 'ยอดเงินไม่ตรง'); n++; }
+    }
+    return n;
+  },
+
+  /* [MEMBER] กลุ่มที่ฉันเข้าร่วม (แท็บ MEMBER) — ราคาเต็ม + ราคาหาร + สถานะ */
+  async getMemberGroups(): Promise<MemberGroupRow[]> {
+    reconcileLeaves();
+    const groups = read<Group>('group');
+    const members = read<Member>('member');
+    const payments = read<Payment>('payment');
+    const rows: MemberGroupRow[] = [];
+    for (const g of groups) {
+      const mine = members.find(m => m.group_id === g.group_id && m.user_id === ME.user_id && m.role === 'Member' && !m.left_date);
+      if (!mine) continue;
+      const active = members.filter(m => m.group_id === g.group_id && m.status === 'Active' && !m.left_date);
+      const info = priceInfo(g);
+      const slots = Math.max(1, info.slotsNow);
+      const myPay = payments.filter(p => p.group_id === g.group_id && p.user_id === ME.user_id && !p._archived)
+        .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0];
+      const state: MemberCardState = mine.status === 'Active'
+        ? (mine.leaving ? 'leaving' : 'joined')
+        : (myPay?.status === 'Rejected' ? 'rejected' : 'pending');
+      const bi = DB.billingInfo(g.group_id);
+      const due = bi ? new Date(bi.next_due) : null;
+      const dueLabel = !bi ? '-'
+        : bi.days_until === 0 ? 'วันนี้'
+          : `${due!.getDate()}/${daysInMonth(due!.getFullYear(), due!.getMonth())}`;
+      const dc = dueCountdown(g.billing_date, new Date(), cycleMonths(g._billing_cycle));
+      rows.push({
+        group_id: g.group_id, service_name: g.service_name, category: g.category,
+        fullPrice: info.now, slots, share: info.now / slots,
+        memberCount: active.length, max_slots: g.max_slots,
+        status: mine.status, paid: myPay?.status === 'Verified', state,
+        dueLabel, daysUntil: bi ? bi.days_until : 99,
+        nearDue: bi ? (bi.days_until >= 0 && bi.days_until <= 3) : false,
+        dueText: dc.text, dueUrgent: dc.urgent,
+      });
+    }
+    return rows;
+  },
+
+  /* [DEV] กลุ่มสาธิตเข้ากลางรอบบิล (idempotent) — ราคาเต็ม 400/4 = 100/หัว
+     ตั้งวันตัดรอบ = อีก 6 วัน → คิดค่าบริการเดือนแรกตามสัดส่วน 7 วันใช้งานจริง + เงินประกัน */
+  ensureMidCycleDemo(now: Date = new Date()): Group {
+    const code = 'SPOTIFY-7';
+    const existing = read<Group>('group').find(x => x.invite_code.toUpperCase() === code);
+    if (existing) return existing;
+    const users = read<User>('user');
+    const hostId = uuid();
+    users.push({ user_id: hostId, line_uid: 'Uhost' + hostId.slice(0, 6), display_name: 'โฮสต์ Spotify', pic_user: '' });
+    write<User>('user', users);
+    const cut = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 6);
+    const g: Group = {
+      group_id: uuid(), user_id: hostId, service_name: 'Spotify (สาธิต)',
+      total_price: '400.00', max_slots: 4, billing_date: cut.toISOString().slice(0, 10),
+      invite_code: code, category: 'Music',
+      bankDT: 'ธนาคารกสิกรไทย (KBANK) 123-4-56789-0 สมชาย ไดมอนด์',
+      _billing_cycle: 'monthly', _deposit: '100.00',
+      _pricing_history: [{ from: '1970-01', price: '400.00', max_slots: 4 }],
+    };
+    const groups = read<Group>('group'); groups.push(g); write<Group>('group', groups);
+    const members = read<Member>('member');
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: hostId, joined_date: today(), role: 'Host', status: 'Active', left_date: null });
+    write<Member>('member', members);
+    return g;
+  },
+
+  /* [DEV] กลุ่มสาธิต "disney" รหัส DISNEY-99 (idempotent) — โฮสต์เป็นคนอื่น + มีสมาชิกตัวอย่าง
+     ราคาเต็ม 594 / 6 ช่อง → หารต่อหัว 99 บาท */
+  ensureDemoDisney(): Group {
+    const existing = read<Group>('group').find(x => x.invite_code.toUpperCase() === 'DISNEY-99');
+    if (existing) return existing;
+    const users = read<User>('user');
+    const hostId = uuid(), aId = uuid(), bId = uuid(), cId = uuid();
+    users.push({ user_id: hostId, line_uid: 'Uhost' + hostId.slice(0, 6), display_name: 'โฮสต์ Disney', pic_user: '' });
+    users.push({ user_id: aId, line_uid: 'Umem' + aId.slice(0, 6), display_name: 'Member A', pic_user: '' });
+    users.push({ user_id: bId, line_uid: 'Umem' + bId.slice(0, 6), display_name: 'Member B', pic_user: '' });
+    users.push({ user_id: cId, line_uid: 'Umem' + cId.slice(0, 6), display_name: 'Member C', pic_user: '' });
+    write<User>('user', users);
+
+    const g: Group = {
+      group_id: uuid(), user_id: hostId, service_name: 'disney',
+      total_price: '594.00', max_slots: 6, billing_date: today(),
+      invite_code: 'DISNEY-99', category: 'Entertainment',
+      bankDT: 'ธนาคารกสิกรไทย (KBANK) 123-4-56789-0 สมชาย ไดมอนด์',
+      _billing_cycle: 'monthly', _deposit: '99.00',
+      _pricing_history: [{ from: '1970-01', price: '594.00', max_slots: 6 }],
+    };
+    const groups = read<Group>('group'); groups.push(g); write<Group>('group', groups);
+
+    const members = read<Member>('member');
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: hostId, joined_date: today(), role: 'Host', status: 'Active', left_date: null });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: aId, joined_date: today(), role: 'Member', status: 'Active', left_date: null });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: bId, joined_date: today(), role: 'Member', status: 'Active', left_date: null });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: cId, joined_date: today(), role: 'Member', status: 'Active', left_date: null });
+    write<Member>('member', members);
+
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: aId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก A'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: bId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก B'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: cId, amount: '99.00', slip_url: sampleSlip('99.00', 'สมาชิก C'), status: 'Verified', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+    return g;
+  },
+
+  /* [DEV] จำลองข้อมูล "เดือนก่อน" เพื่อทดสอบป้ายเทียบ % บน Dashboard
+     dir='up'   → เดือนก่อนถูก, เดือนนี้แพง → โชว์ ↑ เพิ่มขึ้น
+     dir='down' → เดือนก่อนแพง, เดือนนี้ถูก → โชว์ ↓ ลดลง
+     ME เข้าเป็นสมาชิกตั้งแต่ 2 เดือนก่อน (active ทั้งเดือนก่อนและเดือนนี้)
+     idempotent: ลบกลุ่มจำลองเดิมก่อนทุกครั้ง จึงสลับทิศได้ */
+  devSeedPrevMonthCompare(dir: 'up' | 'down', now: Date = new Date()): void {
+    DB.devClearPrevMonthCompare();
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const startKey = monthKey(twoMonthsAgo);      // ราคาเริ่มมีผลตั้งแต่ 2 เดือนก่อน
+    const thisKey  = monthKey(now);               // ราคาชุดใหม่มีผลเดือนนี้
+    const slots = 4;
+    const prevPerHead = dir === 'up' ? 100 : 800; // ต่อหัวเดือนก่อน
+    const curPerHead  = dir === 'up' ? 400 : 100; // ต่อหัวเดือนนี้
+    const g: Group = {
+      group_id: uuid(), user_id: uuid(), service_name: 'ทดสอบเทียบเดือน',
+      total_price: (curPerHead * slots).toFixed(2), max_slots: slots,
+      billing_date: today(), invite_code: 'PREVDEMO', category: 'Other',
+      bankDT: 'ธนาคารกสิกรไทย (KBANK) 000-0-00000-0 ทดสอบ ระบบ',
+      _billing_cycle: 'monthly', _deposit: curPerHead.toFixed(2),
+      _pricing_history: [
+        { from: startKey, price: (prevPerHead * slots).toFixed(2), max_slots: slots },
+        { from: thisKey,  price: (curPerHead  * slots).toFixed(2), max_slots: slots },
+      ],
+    };
+    const groups = read<Group>('group'); groups.push(g); write<Group>('group', groups);
+    const members = read<Member>('member');
+    members.push({
+      member_id: uuid(), group_id: g.group_id, user_id: ME.user_id,
+      joined_date: twoMonthsAgo.toISOString().slice(0, 10),
+      role: 'Member', status: 'Active', left_date: null,
+    });
+    write<Member>('member', members);
+  },
+
+  /* [DEV] ลบกลุ่มจำลองเทียบเดือน (invite_code = PREVDEMO) พร้อมสมาชิก/สลิป */
+  devClearPrevMonthCompare(): void {
+    const groups = read<Group>('group');
+    const demo = groups.find(x => x.invite_code === 'PREVDEMO');
+    if (!demo) return;
+    write<Group>('group', groups.filter(x => x.group_id !== demo.group_id));
+    write<Member>('member', read<Member>('member').filter(m => m.group_id !== demo.group_id));
+    write<Payment>('payment', read<Payment>('payment').filter(p => p.group_id !== demo.group_id));
+  },
+
 
   async approvePayment(groupId: string, userId: string): Promise<boolean> {
     const payments = read<Payment>('payment');
@@ -297,7 +764,11 @@ export const DB = {
     if (p) { p.status = 'Verified'; write<Payment>('payment', payments); }
     const members = read<Member>('member');
     const m = members.find(x => x.group_id === groupId && x.user_id === userId);
-    if (m && m.status === 'Pending') { m.status = 'Active'; write<Member>('member', members); }
+    if (m) {
+      if (m.status === 'Pending') m.status = 'Active';
+      if (m._owe_full) delete m._owe_full;   // จ่ายเต็ม + เติมเงินประกันแล้ว
+      write<Member>('member', members);
+    }
     return true;
   },
 
@@ -317,12 +788,73 @@ export const DB = {
     return true;
   },
 
-  /* สมาชิกกดขอออก — ยังอยู่/ไม่ต้องจ่ายจนจบรอบ แล้วเดือนหน้าถูกเตะอัตโนมัติตอนขึ้นรอบใหม่ */
-async requestLeave(groupId: string, userId: string): Promise<boolean> {
-  const members = read<Member>('member');
-  const m = members.find(x => x.group_id === groupId && x.user_id === userId && !x.left_date);
-  if (m && m.role !== 'Host') { m.leaving = true; write<Member>('member', members); }  // [M4]
-  return true;
+  /* [MEMBER] สมาชิกตัดสินใจออกเอง (ไม่ต้องรอ Host อนุมัติ) — ยังใช้งานต่อได้จนถึงวันตัดรอบถัดไป
+     รอบสุดท้ายใช้เงินประกันครอบคลุม → ไม่ต้องจ่าย, slot ว่างเมื่อถึงวันมีผล */
+  async requestLeave(groupId: string, userId: string): Promise<boolean> {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    const members = read<Member>('member');
+    const m = members.find(x => x.group_id === groupId && x.user_id === userId && !x.left_date);
+    if (m && m.role !== 'Host') {
+      m.leaving = true;                                    // [M4]
+      m._leave_at = today();
+      // ใช้งานต่ออีก 1 เดือนเต็ม: เงินประกันครอบคลุมรอบ C1→C2, ออกจริงที่วันตัดรอบถัดจากรอบหน้า (C2)
+      if (g) {
+        const c1 = nextDueDate(g.billing_date);
+        const afterC1 = new Date(c1); afterC1.setDate(afterC1.getDate() + 1);
+        m._leave_effective = nextDueDate(g.billing_date, afterC1).toISOString().slice(0, 10);
+      } else { m._leave_effective = today(); }
+      write<Member>('member', members);
+    }
+    return true;
+  },
+
+  /* [MEMBER] เปลี่ยนใจ — ยกเลิกคำขอออก กลับเป็นสมาชิกปกติ (ก่อนถึงวันมีผล) */
+  async cancelLeave(groupId: string, userId: string): Promise<boolean> {
+    const g = read<Group>('group').find(x => x.group_id === groupId);
+    const members = read<Member>('member');
+    const m = members.find(x => x.group_id === groupId && x.user_id === userId && !x.left_date);
+    if (!m || !m.leaving) return true;
+    // เงินประกันถูกใช้ไปแล้วหรือยัง = มีวันตัดรอบบิลผ่านไปแล้วตั้งแต่วันแจ้งออก
+    const leftAt = m._leave_at ? new Date(m._leave_at) : new Date();
+    const cutAfterLeave = g ? nextDueDate(g.billing_date, leftAt).toISOString().slice(0, 10) : today();
+    const consumed = cutAfterLeave < today() && m._leave_at !== today();   // ใช้เงินประกันแล้วเฉพาะเมื่อเลยวันตัดรอบจริง (ไม่นับวันแจ้ง/วันตัดรอบเอง)
+    m.leaving = false;
+    delete m._leave_effective; delete m._leave_at;
+    if (consumed) {
+      // ใช้เงินประกันไปแล้ว → รอบถัดไปจ่ายเต็ม (ค่าบริการ + เติมเงินประกัน), เคลียร์สถานะจ่ายเดิม
+      m._owe_full = true;
+      write<Member>('member', members);
+      const kept = read<Payment>('payment').filter(p => !(p.group_id === groupId && p.user_id === userId && !p._archived));
+      write<Payment>('payment', kept);
+    } else {
+      delete m._owe_full;
+      write<Member>('member', members);
+    }
+    return true;
+  },
+
+  /* ME ต้องจ่ายเต็ม (เติมเงินประกัน) รอบถัดไปหรือไม่ (หลังยกเลิกออกโดยใช้เงินประกันไปแล้ว) */
+  myOweFull(groupId: string): boolean {
+    const m = read<Member>('member').find(x => x.group_id === groupId && x.user_id === ME.user_id && !x.left_date);
+    return !!m?._owe_full;
+  },
+
+  /* วันมีผลออกของ ME ในกลุ่มนี้ (ถ้ากำลังจะออก) */
+  myLeaveEffective(groupId: string): string | null {
+    const m = read<Member>('member').find(x => x.group_id === groupId && x.user_id === ME.user_id && !x.left_date);
+    return m?.leaving ? (m._leave_effective ?? null) : null;
+  },
+
+  /* [DEV] เร่งเวลาให้คำขอออกของ ME ครบกำหนดทันที (ทดสอบหลุดกลุ่ม + slot ว่าง) */
+  async devExpireMyLeave(): Promise<number> {
+    const members = read<Member>('member');
+    let n = 0;
+    for (const m of members) {
+      if (m.user_id === ME.user_id && m.leaving && !m.left_date) { m._leave_effective = today(); n++; }
+    }
+    if (n) write<Member>('member', members);
+    reconcileLeaves();
+    return n;
   },
 
   billingInfo(groupId: string): BillingInfo | null {
@@ -330,9 +862,9 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     if (!g) return null;
     return {
       billing_date: g.billing_date,
-      next_due: nextDueDate(g.billing_date).toISOString().slice(0, 10),
-      days_until: daysUntilDue(g.billing_date),
-      reminder: reminderState(g.billing_date),
+      next_due: nextDueDate(g.billing_date, new Date(), cycleMonths(g._billing_cycle)).toISOString().slice(0, 10),
+      days_until: daysUntilDue(g.billing_date, new Date(), cycleMonths(g._billing_cycle)),
+      reminder: reminderState(g.billing_date, new Date(), cycleMonths(g._billing_cycle)),
     };
   },
 
@@ -366,7 +898,7 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     if (!g) return false;
     const payments = read<Payment>('payment');
     payments.push({ payment_id: uuid(), group_id: groupId, user_id: userId,
-      amount: pricingNow(g).price.toFixed(2), slip_url: '/slips/demo.jpg',   // ราคาที่มีผลรอบนี้
+      amount: pricingNow(g).price.toFixed(2), slip_url: sampleSlip(pricingNow(g).price.toFixed(2)),   // ราคาที่มีผลรอบนี้
       status: 'Waiting', paid_at: new Date().toISOString() });
     write<Payment>('payment', payments);
     return true;
@@ -384,6 +916,9 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
   async getMySubscriptions(): Promise<Subscription[]> {
     return read<Subscription>('subscription').filter(s => s.user_id === ME.user_id);
   },
+  async getSubscription(subId: string): Promise<Subscription | null> {
+    return read<Subscription>('subscription').find(s => s.sub_id === subId && s.user_id === ME.user_id) ?? null;
+  },
   async addSubscription(s: Omit<Subscription, 'sub_id' | 'user_id' | 'end_date'>): Promise<Subscription> {
     const subs = read<Subscription>('subscription');
     const sub: Subscription = { ...s, sub_id: uuid(), user_id: ME.user_id, end_date: null };
@@ -394,6 +929,24 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     const subs = read<Subscription>('subscription');
     const s = subs.find(x => x.sub_id === subId && !x.end_date);
     if (s) { s.end_date = today(); write<Subscription>('subscription', subs); }
+    return true;
+  },
+  /* PATCH /api/subscriptions/:id — แก้ไขรายจ่ายส่วนตัว */
+  async updateSubscription(
+    subId: string,
+    patch: Partial<Pick<Subscription, 'service_name' | 'price' | 'billing_date' | 'category' | '_billing_cycle'>>,
+  ): Promise<Subscription | null> {
+    const subs = read<Subscription>('subscription');
+    const s = subs.find(x => x.sub_id === subId && x.user_id === ME.user_id);
+    if (!s) return null;
+    Object.assign(s, patch);
+    write<Subscription>('subscription', subs);
+    return s;
+  },
+  /* DELETE /api/subscriptions/:id — ลบรายจ่ายส่วนตัวออกจริง */
+  async deleteSubscription(subId: string): Promise<boolean> {
+    write<Subscription>('subscription',
+      read<Subscription>('subscription').filter(x => !(x.sub_id === subId && x.user_id === ME.user_id)));
     return true;
   },
 
@@ -407,11 +960,16 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     const yearly: Record<Category, number> = { Entertainment: 0, Music: 0, Productivity: 0, Other: 0 };
 
     const monthIdxNow = now.getFullYear() * 12 + now.getMonth();
-    const isActiveThisMonth = (startISO: string, endISO: string | null | undefined) => {
-      const s = new Date(startISO); const sIdx = s.getFullYear() * 12 + s.getMonth();
+    const prevIdx = monthIdxNow - 1;                 // ดัชนีเดือนก่อนหน้า (เอาไว้เทียบ %)
+    let prevTotal = 0;                               // ยอดรวมของเดือนก่อน (ทุกหมวด)
+    // active ณ เดือน idx ใด ๆ (ใช้ทั้งเดือนนี้และเดือนก่อน)
+    const activeInMonth = (startISO: string, endISO: string | null | undefined, idx: number) => {
+      const sIdx = new Date(startISO).getFullYear() * 12 + new Date(startISO).getMonth();
       const eIdx = endISO ? (new Date(endISO).getFullYear() * 12 + new Date(endISO).getMonth()) : monthIdxNow;
-      return sIdx <= monthIdxNow && monthIdxNow <= eIdx;
+      return sIdx <= idx && idx <= eIdx;
     };
+    const isActiveThisMonth = (startISO: string, endISO: string | null | undefined) =>
+      activeInMonth(startISO, endISO, monthIdxNow);
 
     for (const m of members) {
       const g = groups.find(x => x.group_id === m.group_id);
@@ -420,6 +978,11 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
       if (isActiveThisMonth(m.joined_date, m.left_date)) {
         const pm = pricingForMonth(g, monthIdxNow);
         month[g.category] += pm.price / pm.slots;
+      }
+      // เดือนก่อน: ค่าต่อหัวตามราคาที่มีผลเดือนนั้น (ไว้เทียบแนวโน้ม)
+      if (activeInMonth(m.joined_date, m.left_date, prevIdx)) {
+        const pm = pricingForMonth(g, prevIdx);
+        prevTotal += pm.price / pm.slots;
       }
       // รายปี: รวมค่าต่อหัวรายเดือนที่ active ในปีนั้น โดยใช้ราคาตามแต่ละเดือน (ไม่ย้อนหลัง)
       const sIdx = new Date(m.joined_date).getFullYear() * 12 + new Date(m.joined_date).getMonth();
@@ -438,6 +1001,7 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     for (const s of subs) {
       const price = Number(s.price);
       if (isActiveThisMonth(s.billing_date, s.end_date)) month[s.category] += price;
+      if (activeInMonth(s.billing_date, s.end_date, prevIdx)) prevTotal += price;
       const mo = activeMonthsInYear(s.billing_date, s.end_date, year, now);
       yearly[s.category] += price * mo;
     }
@@ -448,7 +1012,7 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
       category: c, label: CATEGORY_LABEL[c], amount: month[c],
       percent: monthTotal > 0 ? Math.round((month[c] / monthTotal) * 100) : 0,
     }));
-    return { monthTotal, yearTotal, byCategory };
+    return { monthTotal, yearTotal, prevMonthTotal: prevTotal, byCategory };
   },
 
   /* GET /api/dashboard/history — ยอดรวมย้อนหลัง 6 เดือน (นับตรง ไม่ตัดปี)
@@ -483,9 +1047,50 @@ async requestLeave(groupId: string, userId: string): Promise<boolean> {
     return out;
   },
 
+  /* [DEV] จำลองโฮสต์อนุมัติคำขอ Pending ทั้งหมดของ ME (ทดสอบ flow อนุมัติเข้ากลุ่ม) */
+  async devApproveMyPending(): Promise<number> {
+    const members = read<Member>('member').filter(m => m.user_id === ME.user_id && m.status === 'Pending' && !m.left_date);
+    for (const m of members) await DB.approvePayment(m.group_id, ME.user_id);
+    return members.length;
+  },
+
   reset(): void {
     Object.values(K).forEach(k => localStorage.removeItem(k));
     write<User>('user', [ME]);
+  },
+
+  /* [DEV/TEST] สร้างกลุ่มสาธิต (โฮสต์เป็นคนอื่น) + สมาชิก Active 1 + คำขอ Pending 1
+     คืนรหัสเชิญให้ "ฉัน" นำไปกรอกที่หน้าเข้าร่วมกลุ่ม เพื่อทดสอบฝั่ง Member เต็มวงจร */
+  async seedDemoGroup(): Promise<{ group: Group; code: string }> {
+    const users = read<User>('user');
+    const hostId = uuid(), memId = uuid(), reqId = uuid();
+    users.push({ user_id: hostId, line_uid: 'Uhost' + hostId.slice(0, 6), display_name: 'โฮสต์ตัวอย่าง', pic_user: '' });
+    users.push({ user_id: memId, line_uid: 'Umem' + memId.slice(0, 6), display_name: 'สมาชิก A', pic_user: '' });
+    users.push({ user_id: reqId, line_uid: 'Ureq' + reqId.slice(0, 6), display_name: 'ผู้ขอเข้า B', pic_user: '' });
+    write<User>('user', users);
+
+    const code = genInviteCode();
+    const groups = read<Group>('group');
+    const g: Group = {
+      group_id: uuid(), user_id: hostId, service_name: 'Netflix (สาธิต)',
+      total_price: '149.00', max_slots: 4, billing_date: today().slice(0, 8) + '15',
+      invite_code: code, category: 'Entertainment',
+      bankDT: 'กสิกรไทย 123-4-56789-0 สมชาย ใจดี', _billing_cycle: 'monthly', _deposit: '149.00',
+    };
+    groups.push(g); write<Group>('group', groups);
+
+    const members = read<Member>('member');
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: hostId, joined_date: today(), role: 'Host', status: 'Active' });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: memId, joined_date: today(), role: 'Member', status: 'Active' });
+    members.push({ member_id: uuid(), group_id: g.group_id, user_id: reqId, joined_date: today(), role: 'Member', status: 'Pending' });
+    write<Member>('member', members);
+
+    const payments = read<Payment>('payment');
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: memId, amount: '149.00', slip_url: sampleSlip('149.00', 'สมาชิก A'), status: 'Verified', paid_at: new Date().toISOString() });
+    payments.push({ payment_id: uuid(), group_id: g.group_id, user_id: reqId, amount: '298.00', slip_url: sampleSlip('298.00', 'ผู้ขอเข้า B'), status: 'Waiting', paid_at: new Date().toISOString() });
+    write<Payment>('payment', payments);
+
+    return { group: g, code };
   },
 };
 

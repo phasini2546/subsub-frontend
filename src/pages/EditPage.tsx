@@ -6,8 +6,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DB, splitBankDT } from '../db';
-import type { Category, GroupDetail } from '../types';
-import { Icon, useToast } from '../ui';
+import type { Category, GroupDetail, MemberWithDetail } from '../types';
+import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
 
 type Cycle = 'monthly' | 'yearly';
@@ -20,12 +20,6 @@ const EMPTY: Form = {
   service_name: '', total_price: '', max_slots: '',
   billing_day: '', billing_date_full: '', bank: '', account: '', holder: '',
 };
-const CATEGORIES: { key: Category; label: string }[] = [
-  { key: 'Entertainment', label: 'ความบันเทิง' },
-  { key: 'Music', label: 'เพลง' },
-  { key: 'Productivity', label: 'งาน' },
-  { key: 'Other', label: 'อื่น ๆ' },
-];
 
 export default function EditPage() {
   const { id = '' } = useParams();
@@ -40,6 +34,8 @@ export default function EditPage() {
   const [loading, setLoading] = useState(true);
   const [seatsUsed, setSeatsUsed] = useState(1);   // สมาชิก Active ปัจจุบัน (กัน max_slots ต่ำเกิน)
   const [orig, setOrig] = useState({ price: '', slots: '' });   // ค่าเดิม ไว้เช็คว่าราคา/ช่องเปลี่ยนไหม
+  const [members, setMembers] = useState<MemberWithDetail[]>([]);       // สมาชิกในกลุ่ม (สำหรับจัดการ/นำออก)
+  const [removing, setRemoving] = useState<MemberWithDetail | null>(null); // เป้าหมายที่จะนำออก (ยืนยันก่อน)
 
   /* prefill จากข้อมูลกลุ่มเดิม */
   useEffect(() => {
@@ -51,6 +47,7 @@ export default function EditPage() {
       setCycle(cyc);
       setCategory(g.category);
       setSeatsUsed(g.members.filter(m => m.status === 'Active').length);
+      setMembers(g.members);
       setOrig({ price: String(Number(g.total_price)), slots: String(g.max_slots) });
       setForm({
         service_name: g.service_name,
@@ -67,6 +64,22 @@ export default function EditPage() {
   const set = (k: keyof Form, v: string) => {
     setForm(f => ({ ...f, [k]: v }));
     setErrors(e => { const n = { ...e }; delete n[k]; return n; });
+  };
+
+  /* โหลดรายชื่อสมาชิกใหม่หลังนำออก (ไม่แตะฟอร์ม กันข้อมูลที่กำลังแก้หาย) */
+  const reloadMembers = async () => {
+    const g = await DB.getGroup(id);
+    if (g) { setMembers(g.members); setSeatsUsed(g.members.filter(m => m.status === 'Active').length); }
+  };
+
+  /* โฮสต์นำสมาชิกออกจากกลุ่ม (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
+  const doRemove = async () => {
+    if (!removing) return;
+    const name = removing.user.display_name;
+    await DB.removeMember(id, removing.user_id);
+    setRemoving(null);
+    await reloadMembers();
+    show('นำ ' + name + ' ออกจากกลุ่มแล้ว — ที่นั่งว่างสำหรับคนใหม่');
   };
 
   /* validation: เหมือนตอนสร้าง + กัน max_slots ต่ำกว่าสมาชิกที่มีอยู่ */
@@ -193,17 +206,12 @@ export default function EditPage() {
 
           <div className="field" data-field="category">
             <label>หมวดหมู่</label>
-            <div className="chips">
-              {CATEGORIES.map(c => (
-                <button type="button" key={c.key} className="chip"
-                  aria-pressed={category === c.key}
-                  onClick={() => { setCategory(c.key); setErrors(e => { const n = { ...e }; delete n.category; return n; }); }}>
-                  {c.label}
-                </button>
-              ))}
-            </div>
+            <CategoryPicker value={category}
+              onChange={c => { setCategory(c); setErrors(e => { const n = { ...e }; delete n.category; return n; }); }} />
             {errors.category && <p className="err">{errors.category}</p>}
           </div>
+
+          <ReminderAlert text="ระบบจะช่วยเตือนคุณก่อนถึงวันตัดรอบบิล 3 วัน" />
 
           <h3 className="subhead">รายละเอียดบัญชีธนาคาร</h3>
 
@@ -229,6 +237,26 @@ export default function EditPage() {
             {errors.holder && <p className="err">{errors.holder}</p>}
           </div>
 
+          <h3 className="subhead">จัดการสมาชิก</h3>
+          {members.filter(m => m.role !== 'Host').length === 0 ? (
+            <p className="hint" style={{ marginTop: 0 }}>ยังไม่มีสมาชิกอื่นในกลุ่ม</p>
+          ) : (
+            <div className="rows" style={{ marginBottom: 18 }}>
+              {members.filter(m => m.role !== 'Host').map(m => (
+                <div className="row" key={m.member_id}>
+                  <div className={'av' + (m.status === 'Active' ? ' filled' : '')}>{m.status === 'Active' ? null : Icon.person}</div>
+                  <div className="who">
+                    <b>{m.user.display_name}</b>
+                    <span>{m.leaving ? 'ประสงค์ออก' : m.status === 'Pending' ? 'รอตรวจสลิป' : 'สมาชิก'}</span>
+                  </div>
+                  <button type="button" className="pill"
+                    style={{ color: 'var(--red)', border: '1px solid var(--red)', background: '#fff' }}
+                    onClick={() => setRemoving(m)}>นำออก</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <button type="button" className="btn primary" onClick={askSave}>บันทึกการแก้ไข</button>
           <div style={{ height: 24 }} />
         </div>
@@ -246,6 +274,23 @@ export default function EditPage() {
           </div>
         </div>
       )}
+      {/* ===== ยืนยันนำสมาชิกออก ===== */}
+      {removing && (
+        <div className="veil" onClick={e => { if (e.target === e.currentTarget) setRemoving(null); }}>
+          <div className="modal" style={{ textAlign: 'center' }}>
+            <h3>นำ {removing.user.display_name} ออกจากกลุ่ม?</h3>
+            <p className="sub">
+              ที่นั่งจะว่างทันที สมาชิกจะไม่เห็นกลุ่มนี้อีก — ประวัติการจ่ายยังถูกเก็บไว้<br />
+              เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
+            </p>
+            <div className="modal-actions two">
+              <button className="btn ghost" onClick={() => setRemoving(null)}>ยกเลิก</button>
+              <button className="btn solid-danger" onClick={doRemove}>นำออก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast}
     </div>
   );

@@ -24,20 +24,32 @@ const CAT_COLOR: Record<Category, string> = {
 type History = { month: string; total: number }[];
 
 export default function DashboardPage() {
-  const { node: toast } = useToast();
+  const { show, node: toast } = useToast();
   const [data, setData] = useState<DashboardData | null>(null);
   const [history, setHistory] = useState<History>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'monthly' | 'yearly'>('monthly');
 
+  const reload = async () => {
+    const [d, h] = await Promise.all([DB.getDashboard(), DB.getSpendingHistory()]);
+    setData(d); setHistory(h);
+  };
+
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [d, h] = await Promise.all([DB.getDashboard(), DB.getSpendingHistory()]);
-      setData(d); setHistory(h);
+      await reload();
       setLoading(false);
     })();
   }, []);
+
+  /* [DEV] จำลองข้อมูล "เดือนก่อน" เพื่อดูป้ายเทียบ % ทำงานจริง */
+  const sim = async (dir: 'up' | 'down' | 'clear') => {
+    if (dir === 'clear') { DB.devClearPrevMonthCompare(); show('ล้างข้อมูลจำลองแล้ว'); }
+    else { DB.devSeedPrevMonthCompare(dir); show(dir === 'up' ? 'จำลอง: เดือนนี้แพงกว่าเดือนก่อน' : 'จำลอง: เดือนนี้ถูกกว่าเดือนก่อน'); }
+    setView('monthly');
+    await reload();
+  };
 
   if (loading || !data) {
     return (
@@ -57,6 +69,17 @@ export default function DashboardPage() {
   const donutData = cats.filter(c => c.percent > 0)
     .map(c => ({ label: c.label, amount: c.amount, color: CAT_COLOR[c.category], name: c.category }));
 
+  /* เทียบกับเดือนก่อน (เฉพาะมุมมองรายเดือน) — ลด=เขียว, เพิ่ม=ส้ม */
+  const diff = (() => {
+    if (view !== 'monthly') return null;
+    const prev = data.prevMonthTotal, cur = data.monthTotal;
+    // ไม่มีเดือนก่อน / ค่าเพี้ยน (0, undefined, NaN) → ไม่คำนวณ % (กัน NaN)
+    if (!(prev > 0)) return cur > 0 ? { kind: 'new' as const } : null;
+    const pct = Math.round(((cur - prev) / prev) * 100);
+    if (pct === 0) return { kind: 'same' as const };
+    return { kind: (pct > 0 ? 'up' : 'down') as 'up' | 'down', pct: Math.abs(pct), prev };
+  })();
+
   return (
     <div className="phone">
       <header className="topbar"><BrandLogo /></header>
@@ -75,6 +98,14 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="dash-hero-amount">{baht2(total)} <span>บาท</span></div>
+            {diff && (
+              <div className={'dash-diff ' + diff.kind}>
+                {diff.kind === 'up' && <><span className="dash-diff-arw">↑</span>เพิ่มขึ้น {diff.pct}% จากเดือนก่อน</>}
+                {diff.kind === 'down' && <><span className="dash-diff-arw">↓</span>ลดลง {diff.pct}% จากเดือนก่อน</>}
+                {diff.kind === 'same' && <>เท่ากับเดือนก่อน</>}
+                {diff.kind === 'new' && <>เริ่มมีค่าใช้จ่ายเดือนนี้</>}
+              </div>
+            )}
             <div className="dash-hero-divider" />
             <div className="dash-hero-year">
               {view === 'monthly' ? 'ค่าใช้จ่ายรายปี' : 'ค่าใช้จ่ายเดือนนี้'}
@@ -151,6 +182,30 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* [DEV] ปุ่มทดสอบป้ายเทียบเดือนก่อน — โชว์เฉพาะตอน dev */}
+          {import.meta.env.DEV && (
+            <div className="dash-card" style={{ borderStyle: 'dashed', borderColor: '#C9C9C9' }}>
+              <div className="dash-card-title" style={{ marginBottom: 10 }}>🔧 ทดสอบป้ายเทียบเดือนก่อน (DEV)</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => sim('up')}
+                  style={{ flex: '1 1 auto', border: '1.5px solid #E0B84A', background: '#FFF8E6', color: '#8A5A16', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
+                  ↑ เดือนนี้แพงกว่า
+                </button>
+                <button type="button" onClick={() => sim('down')}
+                  style={{ flex: '1 1 auto', border: '1.5px solid #A6D96F', background: '#F1F8E6', color: '#1F8A3B', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
+                  ↓ เดือนนี้ถูกกว่า
+                </button>
+                <button type="button" onClick={() => sim('clear')}
+                  style={{ flex: '1 1 auto', border: '1.5px solid #D9D9D9', background: '#F5F5F5', color: '#777', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
+                  ล้างข้อมูลจำลอง
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 9, lineHeight: 1.5 }}>
+                กดเพื่อจำลองกลุ่มที่เข้าตั้งแต่ 2 เดือนก่อน (มีข้อมูลเดือนก่อนให้เทียบ) — % คิดจากยอดรวมทุกกลุ่ม
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

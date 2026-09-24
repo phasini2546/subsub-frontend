@@ -8,16 +8,29 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 
-import './app.css';
+import './App.css';
 import GroupsPage from './pages/GroupsPage';
 import CreatePage from './pages/CreatePage';
 import DetailPage from './pages/DetailPage';
 import EditPage from './pages/EditPage';
 import DashboardPage from './pages/DashboardPage';
+import ServicesPage from './pages/ServicesPage';
+import HowToPage from './pages/HowToPage';
+import SubDetailPage from './pages/SubDetailPage';
+import MemberJoin from './pages/MemberJoin';
+import MemberPay from './pages/MemberPay';
+import MemberGroup from './pages/MemberGroup';
 
 const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/groups" replace /> },
+  { path: '/', element: <Navigate to="/service" replace /> },
+  { path: '/service', element: <ServicesPage /> },
+  { path: '/howto', element: <HowToPage /> },
+  { path: '/sub/:id', element: <SubDetailPage /> },
   { path: '/groups', element: <GroupsPage /> },
+  { path: '/join', element: <MemberJoin /> },
+  { path: '/member/pay', element: <MemberPay /> },
+  { path: '/member/group', element: <MemberGroup /> },
+  { path: '/member/group/:id', element: <MemberGroup /> },
   { path: '/create', element: <CreatePage /> },
   { path: '/group/:id', element: <DetailPage /> },
   { path: '/group/:id/edit', element: <EditPage /> },

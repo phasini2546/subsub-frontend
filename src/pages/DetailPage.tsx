@@ -39,7 +39,6 @@ export default function DetailPage() {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [delGroup, setDelGroup] = useState(false);
-  const [manage, setManage] = useState<MemberWithDetail | null>(null);  // เมนูจัดการสมาชิก (ดูสลิป/นำออก)
 
   const reload = useCallback(async () => {
     const data = await DB.getGroup(id);
@@ -49,6 +48,11 @@ export default function DetailPage() {
   }, [id]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  /* Role guard: หน้านี้เป็นของ Host เท่านั้น — ถ้าไม่ใช่โฮสต์ของกลุ่มนี้ ส่งไปหน้า Member (อ่านอย่างเดียว) */
+  useEffect(() => {
+    if (g && DB.me().user_id !== g.user_id) navigate('/member/group/' + id, { replace: true });
+  }, [g, id, navigate]);
 
   if (loading) return <div className="phone"><main className="screen"><div className="wrap"><div className="skel" style={{ height: 120 }} /></div></main></div>;
   if (!g) return (
@@ -99,16 +103,6 @@ export default function DetailPage() {
     setTimeout(() => navigate('/groups'), 900);
   };
 
-  /* โฮสต์นำสมาชิกออกจากกลุ่มเอง (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
-  const doRemoveMember = async () => {
-    if (!manage) return;
-    const name = manage.user.display_name;
-    await DB.removeMember(g.group_id, manage.user_id);
-    setManage(null);
-    await reload();
-    show('นำ ' + name + ' ออกจากกลุ่มแล้ว — ที่นั่งว่างสำหรับคนใหม่ แจ้งทาง LINE เรียบร้อย');
-  };
-
   /* ---------- test buttons ---------- */
   const simJoin = async () => { await DB.createJoinRequest(g.group_id, 'ผู้ขอเข้า ' + String.fromCharCode(65 + g.requests.length + g.members.length)); await reload(); show('มีคนขอเข้ากลุ่มใหม่ (จำลอง) — เลื่อนลงไปดู “คำขอเข้า”'); };
   const simMonthly = async () => {
@@ -138,6 +132,16 @@ export default function DetailPage() {
     if (b.days_until === 0) return 'ครบกำหนดชำระวันนี้';
     return `ครบกำหนด ${dt} · อีก ${b.days_until} วัน`;
   };
+
+  /* แสดงสลิป: ถ้าเป็นรูปจริง (data URL ที่สมาชิกอัปมา) โชว์รูปจริง, ไม่งั้น placeholder (สลิปทดสอบ) */
+  const slipView = (url?: string | null) =>
+    url && url.startsWith('data:')
+      ? (
+        <div className="slip" style={{ padding: 0, background: 'none', minHeight: 0 }}>
+          <img src={url} alt="สลิปการโอนเงิน" style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+        </div>
+      )
+      : <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>;
 
   return (
     <div className="phone">
@@ -194,11 +198,17 @@ export default function DetailPage() {
             const st = deriveStatus(m);
             const s = UI_STATUS[st];
             const filled = st === 'paid' || st === 'review';
+            const tap = st === 'paid';
+            const RowTag = tap ? 'button' : 'div';
             return (
-              <div key={m.member_id} className={`row tappable ${st === 'leaving' ? 'muted' : ''}`}
-                onClick={() => setManage(m)}>
+              <RowTag key={m.member_id} className={`row ${tap ? 'tappable' : ''} ${st === 'leaving' ? 'muted' : ''}`}
+                {...(tap ? { onClick: () => setApproved(m) } : {})}>
                 {avatar(m, filled)}
-                <div className="who"><b>{m.user.display_name}</b><span>{s.text}</span></div>
+                <div className="who"><b>{m.user.display_name}</b><span>{
+                  st === 'leaving' && m._leave_effective
+                    ? `ประสงค์ออก · ที่นั่งว่าง ${new Date(m._leave_effective).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} (เตรียมหาคนใหม่ได้)`
+                    : s.text
+                }</span></div>
                 {st === 'review' ? (
                   <button className="pill review" onClick={e => { e.stopPropagation(); openSlip(m, 'member'); }}>{s.pill}</button>
                 ) : st === 'unpaid' ? (
@@ -206,7 +216,7 @@ export default function DetailPage() {
                 ) : (
                   <span className={'pill ' + s.cls}>{s.pill}</span>
                 )}
-              </div>
+              </RowTag>
             );
           })}
           {freeSeats > 0 && (
@@ -258,7 +268,7 @@ export default function DetailPage() {
           <div className="modal">
             <div className="modal-head"><h3>ตรวจสอบสลิป</h3>
               <button className="x" onClick={() => setSlip(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>
+            {slipView(slip.payment?.slip_url)}
             <div className="slipmeta">
               <div className="av filled" />
               <div className="who"><b>{slip.name}</b><span>อัปโหลดเมื่อ {slip.payment ? fmtDateTime(slip.payment.paid_at) : '-'}</span></div>
@@ -303,7 +313,7 @@ export default function DetailPage() {
           <div className="modal">
             <div className="modal-head"><h3>สลิปที่อนุมัติแล้ว</h3>
               <button className="x" onClick={() => setApproved(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slip"><div className="sl m" /><div className="sl l" /><div className="sl s" /><div className="sl l" /><div className="sl m" /><div className="sl s" /></div>
+            {slipView(approved.currentPayment?.slip_url)}
             <div className="slipmeta">
               <div className="av filled" />
               <div className="who"><b>{approved.user.display_name}</b><span>ยืนยันแล้วเมื่อ {approved.currentPayment ? fmtDateTime(approved.currentPayment.paid_at) : '-'}</span></div>
@@ -327,30 +337,6 @@ export default function DetailPage() {
             <div className="modal-actions two">
               <button className="btn ghost" onClick={() => setDelGroup(false)}>ยกเลิก</button>
               <button className="btn solid-danger" onClick={doDeleteGroup}>ลบกลุ่ม</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== modal: จัดการสมาชิก (ดูสลิป / นำออกจากกลุ่ม) ===== */}
-      {manage && (
-        <div className="veil" onClick={e => { if (e.target === e.currentTarget) setManage(null); }}>
-          <div className="modal">
-            <div className="modal-head"><h3>จัดการสมาชิก</h3>
-              <button className="x" onClick={() => setManage(null)} aria-label="ปิด">{Icon.close}</button></div>
-            <div className="slipmeta">
-              <div className="av filled" />
-              <div className="who"><b>{manage.user.display_name}</b><span>{UI_STATUS[deriveStatus(manage)].text}</span></div>
-            </div>
-            {deriveStatus(manage) === 'paid' && manage.currentPayment && (
-              <button className="btn ghost" onClick={() => { const t = manage; setManage(null); setApproved(t); }}>ดูสลิปที่อนุมัติแล้ว</button>
-            )}
-            <p className="sub" style={{ marginTop: 10 }}>
-              นำออกจากกลุ่มแล้วที่นั่งจะว่างทันที สมาชิกจะไม่เห็นกลุ่มนี้อีก — ประวัติการจ่ายยังถูกเก็บไว้เพื่อคิดยอดย้อนหลัง<br />
-              เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
-            </p>
-            <div className="modal-actions">
-              <button className="btn danger" onClick={doRemoveMember}>นำออกจากกลุ่ม</button>
             </div>
           </div>
         </div>
