@@ -367,14 +367,14 @@ body{
 /* ---------- ตัวเลือกหมวดหมู่แบบแถว (Category picker) ---------- */
 .catlist{display:flex;flex-direction:column;gap:12px}
 .catrow{display:flex;align-items:center;gap:16px;width:100%;text-align:left;font-family:inherit;
-  border:2px solid transparent;background:#F3F3F3;border-radius:16px;padding:11px 16px;cursor:pointer;
-  transition:background .15s,border-color .15s}
-.catrow .catic{width:48px;height:48px;border-radius:12px;background:#DBDBDB;color:#fff;
+  border:2px solid transparent;background:#F4F7EF;border-radius:16px;padding:11px 16px;cursor:pointer;
+  transition:background .15s,border-color .15s,box-shadow .15s}
+.catrow .catic{width:48px;height:48px;border-radius:12px;background:#E6F0DD;color:#8AA96B;
   display:grid;place-items:center;flex:none}
 .catrow .catlbl{font-size:16px;font-weight:600;color:var(--ink-3)}
-.catrow[aria-pressed="true"]{background:#fff;border-color:var(--green)}
-.catrow[aria-pressed="true"] .catic{background:var(--grad)}
-.catrow[aria-pressed="true"] .catlbl{color:var(--ink)}
+.catrow[aria-pressed="true"]{background:#fff;border-color:#A6D96F;box-shadow:0 3px 12px rgba(52,177,79,.12)}
+.catrow[aria-pressed="true"] .catic{background:var(--grad);color:#fff}
+.catrow[aria-pressed="true"] .catlbl{color:#2E9E45;font-weight:700}
 .catrow:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 
 /* ---------- กล่องแจ้งเตือน (reminder alert) ---------- */
