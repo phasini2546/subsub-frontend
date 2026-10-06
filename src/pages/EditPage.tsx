@@ -2,10 +2,14 @@
    SubSub · หน้าแก้ไขข้อมูลกลุ่ม · pages/EditPage.tsx
    reuse ฟอร์มแบบ CreatePage — prefill ข้อมูลเดิม แล้ว DB.updateGroup()
    แก้ได้ทุก field ยกเว้นรหัสเชิญ (invite_code)
+   • เฉพาะ Host ของกลุ่ม (คนอื่นเปิด URL ตรง ๆ จะถูกส่งไปหน้า Member)
+   • [B7] ส่ง billing_day (1–31) ไปตรง ๆ — ไม่สร้างสตริงวันที่เองอีก (เดิมได้ '2026-09-31' → เลื่อนเป็น 1 ต.ค.)
+   • [B9] นำออกได้ทั้งสมาชิกและคำขอที่รออนุมัติ → ที่นั่งว่างทันที
    ===================================================================== */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DB, splitBankDT } from '../db';
+import { billingDayOf } from '../lib/billing';
 import type { Category, GroupDetail, MemberWithDetail } from '../types';
 import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
@@ -42,24 +46,25 @@ export default function EditPage() {
     (async () => {
       const g: GroupDetail | null = await DB.getGroup(id);
       if (!g) { setLoading(false); return; }
+      if (g.user_id !== DB.me().user_id) { navigate('/member/group/' + id, { replace: true }); return; }
       const cyc: Cycle = g._billing_cycle === 'yearly' ? 'yearly' : 'monthly';
       const bank = splitBankDT(g.bankDT);
       setCycle(cyc);
       setCategory(g.category);
-      setSeatsUsed(g.members.filter(m => m.status === 'Active').length);
-      setMembers(g.members);
+      setSeatsUsed(g.seatsUsed);
+      setMembers([...g.members, ...g.requests]);
       setOrig({ price: String(Number(g.total_price)), slots: String(g.max_slots) });
       setForm({
         service_name: g.service_name,
         total_price: String(Number(g.total_price)),
         max_slots: String(g.max_slots),
-        billing_day: cyc === 'monthly' ? String(new Date(g.billing_date).getDate()) : '',
+        billing_day: cyc === 'monthly' ? String(billingDayOf(g)) : '',
         billing_date_full: cyc === 'yearly' ? g.billing_date : '',
         bank: bank.bank, account: bank.account, holder: bank.holder,
       });
       setLoading(false);
     })();
-  }, [id]);
+  }, [id, navigate]);
 
   const set = (k: keyof Form, v: string) => {
     setForm(f => ({ ...f, [k]: v }));
@@ -69,7 +74,7 @@ export default function EditPage() {
   /* โหลดรายชื่อสมาชิกใหม่หลังนำออก (ไม่แตะฟอร์ม กันข้อมูลที่กำลังแก้หาย) */
   const reloadMembers = async () => {
     const g = await DB.getGroup(id);
-    if (g) { setMembers(g.members); setSeatsUsed(g.members.filter(m => m.status === 'Active').length); }
+    if (g) { setMembers([...g.members, ...g.requests]); setSeatsUsed(g.seatsUsed); }
   };
 
   /* โฮสต์นำสมาชิกออกจากกลุ่ม (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
@@ -91,7 +96,7 @@ export default function EditPage() {
     if (!form.service_name) fail('service_name', 'กรุณากรอกชื่อบริการ');
     if (!form.total_price || Number(form.total_price) <= 0) fail('total_price', 'กรุณากรอกราคาที่มากกว่า 0');
     if (!form.max_slots || Number(form.max_slots) < 2) fail('max_slots', 'จำนวนสมาชิกต้องอย่างน้อย 2 คน');
-    else if (Number(form.max_slots) < seatsUsed) fail('max_slots', `ลดไม่ได้ — ตอนนี้มีสมาชิกอยู่แล้ว ${seatsUsed} คน`);
+    else if (Number(form.max_slots) < seatsUsed) fail('max_slots', `ลดไม่ได้ — ตอนนี้มีสมาชิก/คนจองที่นั่งอยู่แล้ว ${seatsUsed} คน`);
     if (cycle === 'monthly') {
       const d = Number(form.billing_day);
       if (!form.billing_day || d < 1 || d > 31) fail('billing_date', 'กรุณาระบุวันที่ 1–31');
@@ -116,18 +121,13 @@ export default function EditPage() {
   }
 
   async function doSave() {
-    let billing_date: string;
-    if (cycle === 'monthly') {
-      const now = new Date();
-      const day = String(form.billing_day).padStart(2, '0');
-      billing_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${day}`;
-    } else billing_date = form.billing_date_full;
-
+    const billing_day = cycle === 'monthly' ? Number(form.billing_day) : Number(form.billing_date_full.slice(8, 10));
     const updated = await DB.updateGroup(id, {
       service_name: form.service_name,
       total_price: Number(form.total_price).toFixed(2),
       max_slots: Number(form.max_slots),
-      billing_date,
+      billing_day,
+      billing_date_full: cycle === 'yearly' ? form.billing_date_full : undefined,
       category: category as Category,
       bankDT: `${form.bank} ${form.account} ${form.holder}`,
       billing_cycle: cycle,   // [M3]
@@ -136,7 +136,7 @@ export default function EditPage() {
     if (!updated) { show('ไม่พบกลุ่มนี้ (อาจถูกลบไปแล้ว)'); return; }
     const priceOrSlotsChanged = Number(orig.price) !== Number(form.total_price) || Number(orig.slots) !== Number(form.max_slots);
     show(priceOrSlotsChanged
-      ? 'บันทึกแล้ว — ราคา/จำนวนช่องใหม่จะมีผลตั้งแต่เดือนถัดไป (บิลเดือนนี้และย้อนหลังคงเดิม)'
+      ? 'บันทึกแล้ว — ราคา/จำนวนช่องใหม่จะมีผลตั้งแต่รอบบิลถัดไป (รอบนี้และย้อนหลังคงเดิม)'
       : 'บันทึกการแก้ไข “' + updated.service_name + '” เรียบร้อย');
     setTimeout(() => navigate('/group/' + id), 900);
   }
@@ -175,7 +175,7 @@ export default function EditPage() {
             <label>จำนวนสมาชิก (รวม Host)</label>
             <input type="number" value={form.max_slots} placeholder="จำนวนสมาชิก" min={2} max={20}
               className={errors.max_slots ? 'invalid' : ''} onChange={e => set('max_slots', e.target.value)} />
-            <p className="hint">ปัจจุบันมีสมาชิกอยู่ {seatsUsed} คน — ลดต่ำกว่านี้ไม่ได้</p>
+            <p className="hint">ปัจจุบันใช้/จองที่นั่งแล้ว {seatsUsed} คน (รวมคนที่รออนุมัติ) — ลดต่ำกว่านี้ไม่ได้</p>
             {errors.max_slots && <p className="err">{errors.max_slots}</p>}
           </div>
 
@@ -191,7 +191,7 @@ export default function EditPage() {
               <label>วันที่เรียกเก็บเงิน</label>
               <input type="number" value={form.billing_day} placeholder="1-31" min={1} max={31}
                 className={errors.billing_date ? 'invalid' : ''} onChange={e => set('billing_day', e.target.value)} />
-              <p className="hint">หากเดือนใดไม่มีวันที่ท่านเลือก ระบบจะนับในวันสุดท้ายของเดือนนั้นแทน</p>
+              <p className="hint">หากเดือนใดไม่มีวันที่ท่านเลือก ระบบจะนับในวันสุดท้ายของเดือนนั้นแทน · ถ้าเปลี่ยนวัน จะเริ่มใช้หลังจบรอบปัจจุบัน</p>
               {errors.billing_date && <p className="err">{errors.billing_date}</p>}
             </div>
           ) : (
@@ -247,7 +247,7 @@ export default function EditPage() {
                   <div className={'av' + (m.status === 'Active' ? ' filled' : '')}>{m.status === 'Active' ? null : Icon.person}</div>
                   <div className="who">
                     <b>{m.user.display_name}</b>
-                    <span>{m.leaving ? 'ประสงค์ออก' : m.status === 'Pending' ? 'รอตรวจสลิป' : 'สมาชิก'}</span>
+                    <span>{m.leaving ? 'แจ้งออกแล้ว' : m.status === 'Pending' ? 'รออนุมัติ (จองที่นั่ง)' : m.bill.phase === 'overdue' ? `ค้างชำระ ${m.bill.daysLate} วัน` : 'สมาชิก'}</span>
                   </div>
                   <button type="button" className="pill"
                     style={{ color: 'var(--red)', border: '1px solid var(--red)', background: '#fff' }}
@@ -280,7 +280,7 @@ export default function EditPage() {
           <div className="modal" style={{ textAlign: 'center' }}>
             <h3>นำ {removing.user.display_name} ออกจากกลุ่ม?</h3>
             <p className="sub">
-              ที่นั่งจะว่างทันที สมาชิกจะไม่เห็นกลุ่มนี้อีก — ประวัติการจ่ายยังถูกเก็บไว้<br />
+              ที่นั่งจะว่างทันที สมาชิกจะเห็นข้อความว่าถูกโฮสต์นำออก — ประวัติการจ่ายยังถูกเก็บไว้<br />
               เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
             </p>
             <div className="modal-actions two">

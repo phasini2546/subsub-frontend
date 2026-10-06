@@ -1,134 +1,107 @@
-# SubSub — Member testing guide (manual)
+# SubSub — คู่มือทดสอบ (Manual + Self-test)
 
-This guide walks through **every function in the Member flow** using the built-in
-**Dev Test Panel** (on the บริการ/Services page) plus the normal UI. Everything is
-mocked in `localStorage` via `src/db.ts` — no backend needed.
+ทุกอย่างยังเก็บใน `localStorage` (ผ่าน `src/lib/store.ts`) — ไม่ต้องมี backend
+เครื่องมือทดสอบทั้งหมดอยู่ใน `src/dev/` และ **โหลดเฉพาะตอน `npm run dev`** (production ไม่มีโค้ดนี้ — ตรวจด้วย `npm run check:prod`)
 
-> **How the mock works (read this first).** There is one "current user" (`ME`) in
-> `db.ts`. Because the mock has no auth, you can drive **both** the member side and
-> the host side as `ME` — e.g. you can open a group you joined and approve your own
-> request. That's intentional for local testing. (In production this becomes a
-> role-aware screen; see README → recommendations.)
-
-## 0. Start
+## 0. เริ่มต้น
 
 ```bash
 npm install
+npm run test:billing   # self-test กฎรอบบิล 30 เคส (Node 22.6+)
 npm run dev
 ```
 
-Open the dev URL. The app lands on **บริการ (Services)**. Scroll to the bottom —
-the dashed **“🧪 โหมดทดสอบ Member (Dev)”** panel is your control center.
+- หน้าแรกคือ **บริการ (Services)** — เลื่อนลงล่างสุดจะเจอแผง **🧪 โหมดทดสอบ**
+- **⏱ วันจำลอง**: ปุ่ม `−1 / +1 / +3 / +5 / +10 / +30 / วันจริง` เลื่อน "วันนี้" ของทั้งแอป
+  (มีในหน้า Services, รายละเอียดกลุ่มฝั่ง Host และฝั่ง Member) — ใช้ทดสอบขึ้นรอบใหม่/ค้างชำระ/เตะออก
+- **♻︎ รีเซ็ตข้อมูลทดสอบทั้งหมด** = ล้าง localStorage + คืนนาฬิกาเป็นวันจริง
+  (หลังอัปเดตโค้ดชุดนี้ แนะนำให้กดรีเซ็ต 1 ครั้ง เพราะ schema ของ payment เปลี่ยน)
 
-Each localStorage table: `subsub_user`, `subsub_group`, `subsub_group_member`,
-`subsub_payment`, `subsub_billing_cycle`, `subsub_subscription`. You can inspect
-them in DevTools → Application → Local Storage at any time.
+> ระบบไม่มี login จริง ผู้ใช้ปัจจุบันคือ `ME` คนเดียว — ฝั่ง Host ใช้ปุ่มจำลองในแผงทดสอบแทนสมาชิกคนอื่น
 
----
+## 1. กฎรอบบิล (อ้างอิง `src/lib/billing.ts`)
 
-## 1. Solo subscription: add → edit → delete  (`Subscription`)
+ตัวอย่างตัดรอบวันที่ 20 — รอบเริ่ม 20 ม.ค. ครอบคลุม 20 ม.ค.–19 ก.พ.
 
-| Step | Action | Expected | Function |
+| ช่วง | สถานะ (phase) | อัปโหลดสลิป | Host เห็น |
 | --- | --- | --- | --- |
-| 1.1 | Services → **+ เพิ่มบริการใหม่** | Add-service form (mirrors Host create) | — |
-| 1.2 | Fill name/price, pick a **หมวดหมู่** row, note the reminder alert, tap **บันทึกข้อมูล** → **Confirm** | Toast “เพิ่มบริการ …”, new **เดี่ยว** card appears | `DB.addSubscription` |
-| 1.3 | On that solo card tap **แก้ไข**, change the price, save | Card shows new price | `DB.updateSubscription` |
-| 1.4 | Tap **ลบ** → **ลบรายการ** | Card disappears | `DB.deleteSubscription` |
-| 1.5 | Tap a **หมวดหมู่** chip in the filter bar | List filters to that category | client filter |
+| D-3 … D-1 | `window` ใกล้ครบกำหนด | ✅ จ่ายล่วงหน้าของรอบใหม่ | "ครบกำหนด … ส่งล่วงหน้าได้" + 🔔 |
+| D0 … D+4 | `due` ยังไม่จ่าย | ✅ | "ยังไม่ชำระ · เลยกำหนด N วัน" + 🔔 |
+| D+5 … D+9 | `overdue` **ค้างชำระ** | ✅ + Pop-up + นับถอยหลัง 5→1 | แถวสีแดง "ค้างชำระ N วัน · จะถูกนำออกใน X วัน" + 🔔 |
+| D+10 | ถูกนำออกอัตโนมัติ, slot ว่าง, เงินประกันถูกยึด | ❌ | สมาชิกหายจากรายชื่อ |
+| มีสลิปรอตรวจ | ไม่ถูกเตะระหว่างรอ | ❌ (กดแก้ไขสลิปได้) | "ตรวจสอบสลิป" |
+| สลิปถูกปฏิเสธหลังเลยเส้นตาย | ได้เวลาส่งใหม่อีก 1 วัน | ✅ | "สลิปถูกปฏิเสธ" + 🔔 |
 
-Check `subsub_subscription` in DevTools after each step.
+**วันเริ่มรอบแรก (B7)** = วันที่ Host เลือก ครั้งแรกที่ ≥ วันที่สร้างกลุ่ม (เลือกวันที่ 31 → เดือนที่มี 30 วันใช้วันที่ 30, ไม่ไหลเป็นวันที่ 1)
+**ราคาใหม่ (B12)** มีผลตั้งแต่ "วันเริ่มรอบบิลถัดไป" ไม่ใช่วันที่ 1 ของเดือนถัดไป
+**ที่นั่ง (B9)** = Host + Active + Pending (คนรออนุมัติจองที่นั่งแล้ว) — ว่างเมื่อ: ค้างครบ 10 วัน / ครบวันออกที่แจ้ง / Host นำออก (และผู้สมัครกดยกเลิกคำขอเอง)
+**แจ้งออก (B9.2)**: ต้องจ่ายรอบปัจจุบันให้ครบ → รอบถัดไปใช้เงินประกันแทน → ออกจริงวันเริ่มรอบหลังจากนั้น
+(แจ้งออกระหว่าง 20 ม.ค.–19 ก.พ. → จ่ายรอบ 20 ม.ค. / รอบ 20 ก.พ. ใช้เงินประกัน / ออก 20 มี.ค.)
 
----
+## 2. Test Case — ขึ้นรอบบิลใหม่ (Renewal)
 
-## 2. Join a group by invite code  (`Member` becomes `Pending`)
+ตั้งต้น: Services → **① เข้าร่วมกลุ่มสาธิต (DISNEY-99)** → อัปโหลดรูป JPG → ยืนยัน → **④ โฮสต์อนุมัติ**
+(กลุ่ม Disney+: 594/6 = 99 บาท/คน, รอบปัจจุบันเริ่มเมื่อ 6 วันก่อน)
 
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 2.1 | Test panel → **① สร้างกลุ่มสาธิต + คัดลอกรหัสเชิญ** | Toast shows a code like `SUB-AB12` (already copied). Creates a group hosted by “โฮสต์ตัวอย่าง” with 1 active member + 1 pending request | `DB.seedDemoGroup` |
-| 2.2 | Test panel → **② ไปหน้าเข้าร่วมกลุ่ม**, paste the code, **เข้าร่วมเลย** | Toast “ส่งคำขอเข้ากลุ่มเรียบร้อย…”, returns to Groups | `DB.joinByCode` |
-| 2.3 | Groups → **MEMBER** tab | The seeded group now appears (you are a member) | `DB.getMyGroups` |
+| ID | ขั้นตอน | ผลที่คาดหวัง |
+| --- | --- | --- |
+| RN-01 | หลังอนุมัติ เปิด MEMBER → การ์ด Disney+ | badge "เข้าร่วมแล้ว", กล่อง "ชำระรอบนี้เรียบร้อยแล้ว", ไม่มีกล่องอัปโหลด |
+| RN-02 | ⏱ เลื่อนวันจนเหลือ 4 วันก่อนรอบถัดไป | ยังเป็น settled — "ครบกำหนด อีก 4 วัน" ไม่มีกล่องอัปโหลด |
+| RN-03 | ⏱ +1 (เหลือ 3 วัน) | **ต้องเห็นกล่องอัปโหลดสลิปของเดือนใหม่** + "ส่งสลิปของรอบใหม่ล่วงหน้าได้แล้ว", ยอด 99.00 |
+| RN-04 | อัปโหลด JPG → ยืนยัน | "รอโฮสต์ตรวจสอบ", ปุ่มแก้ไขการส่งหลักฐาน, ส่งซ้ำไม่ได้ |
+| RN-05 | ④ โฮสต์อนุมัติ | "ชำระรอบนี้เรียบร้อยแล้ว" — และหลังผ่านวันตัดรอบ ยังเป็น settled (ไม่ต้องจ่ายซ้ำ) |
+| RN-06 | ⏱ ไปถึงรอบถัดไปอีกรอบ (+30) โดยไม่จ่าย | วันตัดรอบ = `due` "ครบกำหนดชำระวันนี้" + กล่องอัปโหลด |
+| RN-07 | Host เปิด `/group/:id` ของกลุ่มที่ ME เป็นโฮสต์ (สร้างใหม่ + ปุ่ม "มีคนขอเข้า" + อนุมัติ) แล้วเลื่อนวันข้ามรอบ | สถานะสมาชิกเปลี่ยนเป็น "ยังไม่ชำระ" **เอง** (ไม่ต้องกดขึ้นรอบใหม่) |
 
-Edge cases to try in 2.2: paste a wrong code → “ไม่พบรหัสนี้…”; paste the same code
-twice → “คุณอยู่ในกลุ่มนี้อยู่แล้ว”; a full group → “สมาชิกเต็มแล้ว”.
+## 3. Test Case — จ่ายช้า / ค้างชำระ / เตะออก (B2, B5)
 
-`joinByCode` also creates a **Waiting** payment (service + deposit) — this is the
-mock's stand-in for “member paid the join amount / uploaded a slip.”
+| ID | ขั้นตอน | ผลที่คาดหวัง |
+| --- | --- | --- |
+| OD-01 | จาก RN-06 ⏱ +4 (D+4) | ยังเป็น "ยังไม่ชำระ" + ข้อความเตือนเส้นตาย D+5/D+10 |
+| OD-02 | ⏱ +1 (D+5) แล้วออก-เข้าหน้ากลุ่ม | badge "ค้างชำระ", การ์ดแดง "อีก **5** วันจะถูกนำออก" + แถบ 5 4 3 2 1, **Pop-up เด้งทันที** |
+| OD-03 | กด "ชำระเงินตอนนี้" ใน Pop-up | เลื่อนไปที่กล่องอัปโหลด |
+| OD-04 | ⏱ +1 ทีละวันถึง D+9 | ตัวเลขนับถอยหลัง 4 → 3 → 2 → 1 |
+| OD-05 | D+9 ส่งสลิป (ยังไม่อนุมัติ) แล้ว ⏱ +3 | **ไม่ถูกเตะ** ระหว่างรอตรวจ — แสดง "รอโฮสต์ตรวจสอบ" |
+| OD-06 | ⑤ โฮสต์ปฏิเสธ (หลังเลย D+10) | ได้เวลาส่งใหม่อีก 1 วัน — ถ้าไม่ส่ง วันถัดไปถูกนำออก |
+| OD-07 | ไม่จ่ายจนถึง D+10 | หน้าแสดง "คุณไม่ได้เป็นสมาชิกกลุ่มนี้แล้ว · ค้างชำระเกิน 10 วัน · เงินประกันถูกใช้…", ที่นั่งว่าง +1 |
+| OD-08 | Host (กลุ่ม Disney+ ในมุมโฮสต์ — ใช้กลุ่มที่ ME สร้างเอง) | แถว "ค้างชำระ N วัน · จะถูกนำออกใน X วัน" + แบนเนอร์ "มีสมาชิกค้างชำระ" |
+| OD-09 | Host กด 🔔 แจ้งเตือน | toast "ส่งแจ้งเตือนให้…" + "แจ้งเตือนล่าสุด …" ใต้ชื่อ; ฝั่ง Member เห็น "โฮสต์ส่งการแจ้งเตือน…" |
 
----
+## 4. Test Case — สลิป (B8, B10)
 
-## 3. Host reviews the slip: approve / reject  (status changes)
+| ID | ขั้นตอน | ผลที่คาดหวัง |
+| --- | --- | --- |
+| SL-01 | เลือกไฟล์ .pdf / .gif / .heic | "รองรับเฉพาะไฟล์ JPG หรือ PNG" ไม่สร้างรายการ |
+| SL-02 | ไฟล์ > 5MB | "ไฟล์มีขนาดใหญ่เกินไป" |
+| SL-03 | ไฟล์ .jpg ที่ไส้ในไม่ใช่รูป | "อ่านรูปสลิปไม่ได้…" |
+| SL-04 | ถูกปฏิเสธ | ฝั่ง Member เห็นเหตุผลที่โฮสต์เลือก + ส่งใหม่ได้ |
+| SL-05 | Host แตะแถวสมาชิกที่มีสลิป | เห็น **รูปสลิปจริง** (แตะเพื่อเปิดเต็มจอ) + ประวัติสลิปทุกรอบ + สถานะแต่ละใบ |
+| SL-06 | Host เปิด modal ค้างไว้ → Member กด "แก้ไขการส่งหลักฐาน" → Host กดอนุมัติ | "สลิปนี้ถูกยกเลิก/ตรวจไปแล้ว" (ไม่อนุมัติใบที่ไม่เคยเห็น) |
+| SL-07 | ดับเบิลคลิกปุ่มยืนยัน | ได้สลิปเพียง 1 ใบ |
 
-Open the group: Groups → tap the seeded group card (or the MEMBER-tab card) → **DetailPage**.
+## 5. Test Case — ที่นั่ง / แจ้งออก (B9, B13)
 
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 3.1 | In **คำขอเข้าร่วม (requests)**, tap **ผู้ขอเข้า B**’s review pill → **อนุมัติการชำระเงิน** | B moves to Members as **จ่ายแล้ว** (paid) | `DB.approvePayment` |
-| 3.2 | Repeat for **your own** pending request → approve | Your status → **Active / จ่ายแล้ว** | `DB.approvePayment` |
-| 3.3 | Instead of approving, open a slip → **ปฏิเสธ**, pick a reason | Member returns to **ค้างจ่าย** (unpaid), reason stored | `DB.rejectPayment` |
+| ID | ขั้นตอน | ผลที่คาดหวัง |
+| --- | --- | --- |
+| ST-01 | ② กลุ่มเต็ม (NFLX-2026) แล้วกรอกรหัส | "กลุ่มมีจำนวนสมาชิกเต็มแล้ว" (เต็มเพราะมีคนรออนุมัติ 1 คน) |
+| ST-02 | Host: "มีคนขอเข้ากลุ่ม" จนเต็ม | กดอีกครั้ง → "ที่นั่งเต็มแล้ว (รวมคนที่รออนุมัติ)" |
+| ST-03 | Host แก้ไขกลุ่ม → นำผู้ขอเข้าออก | ที่นั่งว่างทันที |
+| ST-04 | Member กด "แจ้งความประสงค์ออก" (จ่ายรอบนี้แล้ว) | "ใช้งานได้ถึงบิลรอบหน้า (วันที่)" ไม่มีกล่องอัปโหลดรอบถัดไป |
+| ST-05 | แจ้งออกตอนยังไม่จ่ายรอบปัจจุบัน | ยังต้องจ่ายรอบนี้ (ขึ้นกล่องอัปโหลด + ข้อความเตือน) — ไม่จ่ายก็ค้างชำระ/ถูกเตะตามปกติ |
+| ST-06 | ⏱ เลื่อนถึงวันออกจริง | ถูกนำออก (เหตุผล "ครบกำหนดตามที่แจ้งออก"), ที่นั่งว่าง |
+| ST-07 | ยกเลิกการแจ้งออกหลังรอบที่ใช้เงินประกันเริ่มแล้ว | รอบถัดไปยอด ×2 (ค่าบริการ + เติมเงินประกัน) |
 
-Status mapping (`deriveStatus`): no payment → `unpaid`; Waiting → `review`
-(amber pill); Verified → `paid` (green); Rejected → back to `unpaid`.
+## 6. Test Case — วันที่/เวลา (B6, B7, B12)
 
----
+| ID | ขั้นตอน | ผลที่คาดหวัง |
+| --- | --- | --- |
+| DT-01 | สร้างกลุ่ม เลือกวันที่ 31 ในเดือนที่มี 30 วัน | ฟอร์มขึ้น "รอบบิลแรก: 30 …" (ไม่ใช่วันที่ 1 เดือนถัดไป) |
+| DT-02 | ตั้งนาฬิกาเครื่องเป็น 00:30 น. เวลาไทย | "วันนี้" ยังเป็นวันที่ปัจจุบัน (ไม่ใช่เมื่อวาน) |
+| DT-03 | Host แก้ราคากลางรอบ | แบนเนอร์ "ราคาใหม่ … มีผลตั้งแต่รอบบิล (วันตัดรอบถัดไป)"; สมาชิกที่จ่ายล่วงหน้า D-3 จ่ายราคาใหม่ |
 
-## 4. Member pays a monthly round  (`payMonthly`)
+## 7. ก่อน deploy
 
-DetailPage has its own dashed **test panel** (host-side simulation of members).
-
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 4.1 | DetailPage test panel → **“สมาชิกจ่ายรอบใหม่”** (or similar) | A non-host member gets a new **Waiting** payment (review pill) | `DB.payMonthly` |
-| 4.2 | Open that member’s slip → **อนุมัติ** | Member → **จ่ายแล้ว** | `DB.approvePayment` |
-
----
-
-## 5. Member requests to leave  (`requestLeave`)
-
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 5.1 | DetailPage test panel → **“สมาชิกขอออกจากกลุ่ม”** | Member row shows **กำลังออก / leaving** (gray pill) | `DB.requestLeave` |
-| 5.2 | Host → remove member (manage menu) | Member removed / `left_date` set | `DB.removeMember` |
-
----
-
-## 6. New billing cycle  (`startNewCycle`)
-
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 6.1 | DetailPage test panel → **“ขึ้นรอบบิลใหม่”** | Old payments archived (`_archived`), everyone resets to unpaid for the new period; a `subsub_billing_cycle` row is added | `DB.startNewCycle` |
-| 6.2 | Members pay again (step 4) | New Waiting payments for the new cycle | `DB.payMonthly` |
-
----
-
-## 7. Spending totals & dashboard
-
-| Step | Action | Expected | Function |
-| --- | --- | --- | --- |
-| 7.1 | Go to **บริการ** | Hero “ค่าใช้จ่ายเดือนนี้ / รายปี” reflects your groups + solo subs | `DB.getDashboard` |
-| 7.2 | Go to **ภาพรวม** | Category breakdown, donut, 6-month bar chart update | `DB.getDashboard`, `DB.getSpendingHistory` |
-
----
-
-## 8. Reset
-
-Test panel → **♻︎ รีเซ็ตข้อมูลทดสอบทั้งหมด** clears all tables (`DB.reset`) and keeps
-only `ME`. Use it between test runs for a clean slate.
-
----
-
-## Function coverage checklist
-
-- [x] Add / edit / delete solo subscription — `addSubscription` / `updateSubscription` / `deleteSubscription`
-- [x] Join group by code — `joinByCode` (creates Pending member + Waiting payment)
-- [x] Host approve / reject slip; status changes — `approvePayment` / `rejectPayment` / `deriveStatus`
-- [x] Member monthly payment — `payMonthly`
-- [x] Request leave / remove member — `requestLeave` / `removeMember`
-- [x] New billing cycle — `startNewCycle`
-- [x] Spending summary / dashboard — `getDashboard` / `getSpendingHistory`
-
-## Known limitation (by design, for now)
-
-The member-facing **pay / upload-slip** screens aren't built yet — `DetailPage` is
-the host's view, and member payment is exercised via its test panel + the Waiting
-payment created on join. Porting a dedicated member payment screen (backed by
-`DB.payMonthly` + a real slip upload) is the recommended next step.
+```bash
+npm run build        # tsc + vite build
+npm run check:prod   # build แล้วสแกน dist/ ว่าไม่มีรหัสสาธิต/ปุ่มทดสอบหลุดไป
+```

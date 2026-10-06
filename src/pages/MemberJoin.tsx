@@ -1,55 +1,50 @@
 /* =====================================================================
    SubSub · เข้าร่วมกลุ่ม (Member) · pages/MemberJoin.tsx
    ---------------------------------------------------------------------
-   กรอกรหัสคำเชิญ แล้วค้นหากลุ่มจาก DB จริง (รองรับรหัสจากกลุ่มที่โฮสต์สร้าง
-   และรหัสสาธิต DISNEY-99). ถ้าพบ → ไปหน้าชำระเงิน /member/pay?gid=<id>
+   กรอกรหัสคำเชิญ แล้วค้นหากลุ่มจาก DB จริง ถ้าพบ → ไปหน้าชำระเงิน /member/pay?gid=<id>
      • เป็นสมาชิกอยู่แล้ว → ไปหน้ารายละเอียดกลุ่ม
-     • กลุ่มเต็ม / ไม่พบรหัส → แจ้ง error
+     • กลุ่มเต็ม (นับคนที่รออนุมัติด้วย) / ไม่พบรหัส → แจ้ง error
+   [B11] รหัสสาธิต (DISNEY-99 ฯลฯ) ทำงานเฉพาะตอน dev ผ่าน src/dev — production ไม่มีโค้ดนี้
    ===================================================================== */
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../ui';
 import { DB } from '../db';
 import { MIcon } from './MemberUI';
-import { codeInstructions, VALID_CODE, FULL_CODE } from '../memberMock';
+import { DEV_TOOLS, resolveDemoCode } from '../dev';
+
+/* ขั้นตอนขอรหัสจากโฮสต์ (ข้อความจริงของหน้า ไม่ใช่ mock) */
+const CODE_INSTRUCTIONS = [
+  'ติดต่อหัวหน้ากลุ่ม (Host) ที่คุณต้องการร่วมทีม',
+  'ขอรหัสคำเชิญ 8 หลัก (รูปแบบ XXXX-XXXX) จากหน้ารายละเอียดกลุ่มของโฮสต์',
+  'นำรหัสมากรอกในช่องด้านบนและกดปุ่มเข้าร่วม',
+];
+const MSG_FULL = 'ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว';
+const MSG_WRONG = 'ไม่พบรหัสคำเชิญนี้ กรุณาตรวจสอบความถูกต้องแล้วลองใหม่อีกครั้ง';
 
 export default function MemberJoin() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const [code, setCode] = useState(params.get('err') ? '#NFLX-2026' : '');
-  const [error, setError] = useState(
-    params.get('err') === 'full'
-      ? 'ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'
-      : params.get('err') === 'wrong'
-        ? 'กรุณาตรวจสอบความถูกต้องของรหัสผ่านแล้วลองใหม่อีกครั้ง'
-        : '',
-  );
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
-    const normalized = code.replace(/[#\s]/g, '').toUpperCase();
+  const submit = async () => {
+    if (busy) return;
+    const normalized = code.replace(/[#\s-]/g, '').toUpperCase();
     if (!normalized) { setError('กรุณากรอกรหัสคำเชิญก่อนเข้าร่วม'); return; }
-
-    // รหัสสาธิต "กลุ่มเต็ม"
-    if (normalized === FULL_CODE.replace(/-/g, '')) {
-      setError('ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'); return;
+    setBusy(true);
+    try {
+      // รหัสจริงจากกลุ่มที่โฮสต์สร้าง → (dev เท่านั้น) รหัสสาธิต
+      const g = DB.findGroupByCode(normalized) ?? await resolveDemoCode(normalized);
+      if (!g) { setError(MSG_WRONG); return; }
+      const st = DB.memberJoinStatus(g.group_id);
+      if (st === 'already') { navigate('/member/group/' + g.group_id); return; }
+      if (st === 'full') { setError(MSG_FULL); return; }
+      if (st === 'notfound') { setError(MSG_WRONG); return; }
+      navigate('/member/pay?gid=' + g.group_id);
+    } finally {
+      setBusy(false);
     }
-    // รหัสสาธิต DISNEY-99 → สร้าง/หา กลุ่มสาธิตใน DB ก่อน
-    if (normalized === VALID_CODE.replace(/-/g, '')) {
-      const g = DB.ensureDemoDisney();
-      routeToGroup(g.group_id);
-      return;
-    }
-    // รหัสจริงจากกลุ่มที่โฮสต์สร้าง
-    const g = DB.findGroupByCode(normalized);
-    if (!g) { setError('กรุณาตรวจสอบความถูกต้องของรหัสผ่านแล้วลองใหม่อีกครั้ง'); return; }
-    routeToGroup(g.group_id);
-  };
-
-  const routeToGroup = (gid: string) => {
-    const st = DB.memberJoinStatus(gid);
-    if (st === 'already') { navigate('/member/group/' + gid); return; }
-    if (st === 'full') { setError('ขออภัยในความไม่สะดวก ขณะนี้กลุ่มมีจำนวนสมาชิกเต็มแล้ว'); return; }
-    navigate('/member/pay?gid=' + gid);
   };
 
   return (
@@ -73,8 +68,8 @@ export default function MemberJoin() {
           {error && (
             <div className="joinerr">{MIcon.alert}<p>{error}</p></div>
           )}
-          <button className="joinbtn" onClick={submit}>เข้าร่วมเลย{MIcon.arrow}</button>
-          <p className="joinhint">ตัวอย่างรหัสที่ใช้ได้: <b>{VALID_CODE}</b></p>
+          <button className="joinbtn" onClick={submit} disabled={busy}>เข้าร่วมเลย{MIcon.arrow}</button>
+          {DEV_TOOLS && <p className="joinhint">(dev) รหัสสาธิต: <b>DISNEY-99</b> · เต็ม: <b>NFLX-2026</b> · กลางรอบ: <b>SPOTIFY-7</b></p>}
         </div>
 
         {/* วิธีรับรหัสจากโฮสต์ */}
@@ -84,7 +79,7 @@ export default function MemberJoin() {
             <div style={{ flex: 1 }}>
               <h3>วิธีรับรหัสจากโฮสต์</h3>
               <ol className="howsteps">
-                {codeInstructions.map((step, i) => (
+                {CODE_INSTRUCTIONS.map((step, i) => (
                   <li key={i}>
                     <span className="n">{i + 1}</span>
                     <span className="t">{step}</span>

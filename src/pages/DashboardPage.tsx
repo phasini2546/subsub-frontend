@@ -3,7 +3,7 @@
    อ้างอิงดีไซน์ Figma — การ์ดสรุป + แถบหมวดหมู่ + โดนัท + กราฟแท่งย้อนหลัง
    ต่อ DB จริง (ทาง B) — ไม่ใช้ mock, รายปีคิดตามเดือนสะสมจริง
    ===================================================================== */
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -11,6 +11,7 @@ import {
 import { DB } from '../db';
 import type { DashboardData, Category } from '../types';
 import { NavBar, useToast, baht, baht2, BrandLogo } from '../ui';
+import { DevPanels } from '../dev';
 
 
 /* สีแต่ละหมวด (คงตามดีไซน์ Figma) */
@@ -42,14 +43,6 @@ export default function DashboardPage() {
       setLoading(false);
     })();
   }, []);
-
-  /* [DEV] จำลองข้อมูล "เดือนก่อน" เพื่อดูป้ายเทียบ % ทำงานจริง */
-  const sim = async (dir: 'up' | 'down' | 'clear') => {
-    if (dir === 'clear') { DB.devClearPrevMonthCompare(); show('ล้างข้อมูลจำลองแล้ว'); }
-    else { DB.devSeedPrevMonthCompare(dir); show(dir === 'up' ? 'จำลอง: เดือนนี้แพงกว่าเดือนก่อน' : 'จำลอง: เดือนนี้ถูกกว่าเดือนก่อน'); }
-    setView('monthly');
-    await reload();
-  };
 
   if (loading || !data) {
     return (
@@ -183,28 +176,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* [DEV] ปุ่มทดสอบป้ายเทียบเดือนก่อน — โชว์เฉพาะตอน dev */}
-          {import.meta.env.DEV && (
-            <div className="dash-card" style={{ borderStyle: 'dashed', borderColor: '#C9C9C9' }}>
-              <div className="dash-card-title" style={{ marginBottom: 10 }}>🔧 ทดสอบป้ายเทียบเดือนก่อน (DEV)</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" onClick={() => sim('up')}
-                  style={{ flex: '1 1 auto', border: '1.5px solid #E0B84A', background: '#FFF8E6', color: '#8A5A16', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
-                  ↑ เดือนนี้แพงกว่า
-                </button>
-                <button type="button" onClick={() => sim('down')}
-                  style={{ flex: '1 1 auto', border: '1.5px solid #A6D96F', background: '#F1F8E6', color: '#1F8A3B', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
-                  ↓ เดือนนี้ถูกกว่า
-                </button>
-                <button type="button" onClick={() => sim('clear')}
-                  style={{ flex: '1 1 auto', border: '1.5px solid #D9D9D9', background: '#F5F5F5', color: '#777', fontFamily: 'inherit', fontWeight: 700, fontSize: 12.5, padding: '9px 12px', borderRadius: 11, cursor: 'pointer' }}>
-                  ล้างข้อมูลจำลอง
-                </button>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 9, lineHeight: 1.5 }}>
-                กดเพื่อจำลองกลุ่มที่เข้าตั้งแต่ 2 เดือนก่อน (มีข้อมูลเดือนก่อนให้เทียบ) — % คิดจากยอดรวมทุกกลุ่ม
-              </div>
-            </div>
+          {/* [B11] ปุ่มทดสอบป้ายเทียบเดือนก่อน — โหลดเฉพาะ dev */}
+          {DevPanels && (
+            <Suspense fallback={null}>
+              <DevPanels.Dashboard show={show} reload={async () => { setView('monthly'); await reload(); }} />
+            </Suspense>
           )}
         </div>
       </main>

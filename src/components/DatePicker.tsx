@@ -7,6 +7,11 @@
      onChange — คืนค่า YYYY-MM-DD เมื่อเลือกวัน
    ===================================================================== */
 import { useState, useRef, useEffect } from 'react';
+import { fmtDateTH } from '../lib/date';
+import { todayTH } from '../lib/clock';
+
+/* [B6] แปลง 'YYYY-MM-DD' เป็น Date แบบ local (ไม่ผ่าน UTC) → วันไม่เลื่อนในทุก timezone */
+const localDate = (iso: string): Date => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -18,11 +23,11 @@ export default function DatePicker({ value, onChange, invalid }: {
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // วันที่ที่กำลังดู (ค่าเริ่มจาก value หรือวันนี้)
-  const init = value ? new Date(value) : new Date();
+  const init = localDate(value || todayTH());
   const [viewY, setViewY] = useState(init.getFullYear());
   const [viewM, setViewM] = useState(init.getMonth());   // 0-11
 
-  const selected = value ? new Date(value) : null;
+  const selected = value ? localDate(value) : null;
 
   // ปิดเมื่อคลิกนอกกล่อง
   useEffect(() => {
@@ -48,7 +53,7 @@ export default function DatePicker({ value, onChange, invalid }: {
 
   // ข้อความในช่อง (แสดง d MMM yyyy หรือ placeholder)
   const label = value
-    ? new Date(value).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? fmtDateTH(value)
     : 'เลือกวันที่';
 
   // เลื่อนเดือน

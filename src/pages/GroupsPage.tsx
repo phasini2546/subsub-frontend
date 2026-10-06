@@ -7,7 +7,9 @@
    ===================================================================== */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DB, priceInfo, nextDueDate, daysUntilDue } from '../db';
+import { DB, priceInfo } from '../db';
+import { todayTH } from '../lib/clock';
+import { fmtDateTH } from '../lib/date';
 import type { MemberGroupRow } from '../db';
 import type { GroupRow, Role } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht, BrandLogo } from '../ui';
@@ -99,14 +101,13 @@ export default function GroupsPage() {
                 </div>
                 <div className="gbot">
                   <span className="seats">สมาชิกปัจจุบัน <b>{g.memberCount}/{g.max_slots}</b> คน</span>
-                  <span className="amt">{baht(priceInfo(g).now)} บาท</span>
+                  <span className="amt">{baht(priceInfo(g, todayTH()).now)} บาท</span>
                 </div>
                 {isHost && (() => {
-                  const days = daysUntilDue(g.billing_date);
-                  const dt = nextDueDate(g.billing_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'long' });
-                  const msg = days < 0 ? `เลยกำหนดชำระ ${Math.abs(days)} วัน`
-                    : days === 0 ? 'ครบกำหนดชำระวันนี้'
-                    : `ครบกำหนด ${dt} · อีก ${days} วัน`;
+                  const due = DB.upcomingDue(g);   // [B6/B7] วันตัดรอบถัดไปตามเวลาไทย
+                  const days = due.days;
+                  const msg = days === 0 ? 'วันนี้เป็นวันตัดรอบบิล'
+                    : `รอบบิลถัดไป ${fmtDateTH(due.date, { year: false })} · อีก ${days} วัน`;
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10,
                       fontSize: 12, fontWeight: 600, color: days <= 3 ? 'var(--red)' : 'var(--ink-2)' }}>
@@ -121,13 +122,14 @@ export default function GroupsPage() {
           /* ---- แท็บ MEMBER: กลุ่มที่เข้าร่วม (ราคาเต็ม + ราคาหาร + สถานะ) ---- */
           <div className="wrap">
             {memberRows.map(c => {
-              const badge = c.state === 'joined'
-                ? { cls: 'gbadge-active', text: 'เข้าร่วมแล้ว' }
-                : c.state === 'leaving'
-                  ? { cls: 'gbadge-leave', text: 'กำลังจะออก' }
-                  : c.state === 'rejected'
-                    ? { cls: 'gbadge-reject', text: 'ถูกปฏิเสธ' }
-                    : { cls: 'gbadge-wait', text: 'รออนุมัติ' };
+              const badge = {
+                joined:   { cls: 'gbadge-active',  text: 'เข้าร่วมแล้ว' },
+                due:      { cls: 'gbadge-wait',    text: 'ถึงกำหนดชำระ' },
+                overdue:  { cls: 'gbadge-overdue', text: 'ค้างชำระ' },
+                leaving:  { cls: 'gbadge-leave',   text: 'แจ้งออกแล้ว' },
+                rejected: { cls: 'gbadge-reject',  text: 'ถูกปฏิเสธ' },
+                pending:  { cls: 'gbadge-wait',    text: 'รออนุมัติ' },
+              }[c.state];
               return (
                 <div
                   key={c.group_id}
@@ -142,8 +144,11 @@ export default function GroupsPage() {
                     <div className="gname">
                       <b>{c.service_name}</b>
                       <span className="mmeta"><span>สมาชิก {c.memberCount}/{c.max_slots} คน</span></span>
-                      {c.state === 'joined' && (
+                      {c.state !== 'pending' && c.state !== 'rejected' && (
                         <span className={'duechip' + (c.dueUrgent ? ' u' : '')}>{Icon.cal}{c.dueText}</span>
+                      )}
+                      {c.state === 'overdue' && c.bill.kickInDays !== null && (
+                        <span className="duechip u">อีก {c.bill.kickInDays} วันจะถูกนำออกจากกลุ่ม</span>
                       )}
                     </div>
                     <span className={'badge ' + badge.cls}>{badge.text}</span>

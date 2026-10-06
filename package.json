@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:billing": "node --experimental-strip-types scripts/billing-selftest.ts",
+    "check:prod": "vite build && node scripts/check-no-dev.mjs"
   },
   "dependencies": {
     "@line/liff": "^2.31.0",
