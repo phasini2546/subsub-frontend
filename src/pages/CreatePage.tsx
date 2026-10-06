@@ -1,6 +1,8 @@
 /* =====================================================================
    SubSub · หน้าสร้างกลุ่มใหม่ · pages/CreatePage.tsx
    แปลงจาก create.html + create.js — validation + บันทึกลง DB
+   [B7] ส่ง "วันที่ที่เลือก" (billing_day) ให้ DB คำนวณวันเริ่มรอบแรกจากวันที่สร้างกลุ่มเอง
+        (เดิมต่อสตริง ปี-เดือนปัจจุบัน-วัน → วันที่ 31 ในเดือน 30 วันกลายเป็นวันที่ 1 เดือนถัดไป)
    ===================================================================== */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +10,9 @@ import { DB } from '../db';
 import type { Category } from '../types';
 import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
+import { fmtDateTH } from '../lib/date';
+import { todayTH } from '../lib/clock';
+import { firstBillingDate } from '../lib/billing';
 
 type Cycle = 'monthly' | 'yearly';
 type Form = {
@@ -30,6 +35,7 @@ export default function CreatePage() {
   const [category, setCategory] = useState<Category | ''>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const set = (k: keyof Form, v: string) => {
     setForm(f => ({ ...f, [k]: v }));
@@ -69,25 +75,21 @@ export default function CreatePage() {
   }
 
   async function doSave() {
-    // แปลง billing_date ตามรอบ
-    let billing_date: string;
-    if (cycle === 'monthly') {
-      const now = new Date();
-      const day = String(form.billing_day).padStart(2, '0');
-      billing_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${day}`;
-    } else billing_date = form.billing_date_full;
-
+    if (saving) return;
+    setSaving(true);
+    const billing_day = cycle === 'monthly' ? Number(form.billing_day) : Number(form.billing_date_full.slice(8, 10));
     const created = await DB.createGroup({
       service_name: form.service_name,
       total_price: Number(form.total_price).toFixed(2),
       max_slots: Number(form.max_slots),
-      billing_date,
+      billing_day,
+      billing_date_full: cycle === 'yearly' ? form.billing_date_full : undefined,
       category: category as Category,
       bankDT: `${form.bank} ${form.account} ${form.holder}`,
       billing_cycle: cycle,   // [M3]
     });
     setConfirm(false);
-    show('สร้างกลุ่ม “' + created.service_name + '” เรียบร้อย');
+    show('สร้างกลุ่ม “' + created.service_name + '” เรียบร้อย · รอบบิลแรก ' + fmtDateTH(created.billing_date));
     setTimeout(() => navigate('/groups'), 900);
   }
 
@@ -138,7 +140,9 @@ export default function CreatePage() {
               <label>วันที่เรียกเก็บเงิน</label>
               <input type="number" value={form.billing_day} placeholder="1-31" min={1} max={31}
                 className={errors.billing_date ? 'invalid' : ''} onChange={e => set('billing_day', e.target.value)} />
-              <p className="hint">หากเดือนใดไม่มีวันที่ท่านเลือก ระบบจะนับในวันสุดท้ายของเดือนนั้นแทน</p>
+              <p className="hint">หากเดือนใดไม่มีวันที่ท่านเลือก ระบบจะนับในวันสุดท้ายของเดือนนั้นแทน
+                {Number(form.billing_day) >= 1 && Number(form.billing_day) <= 31
+                  ? ` · รอบบิลแรก: ${fmtDateTH(firstBillingDate(todayTH(), Number(form.billing_day)))}` : ''}</p>
               {errors.billing_date && <p className="err">{errors.billing_date}</p>}
             </div>
           ) : (
@@ -195,7 +199,7 @@ export default function CreatePage() {
             <h3>กรุณายืนยันการบันทึก</h3>
             <p className="sub">ตรวจสอบข้อมูลให้ครบถ้วน ก่อนทำการบันทึก</p>
             <div className="modal-actions">
-              <button className="btn primary" onClick={doSave}>Confirm</button>
+              <button className="btn primary" disabled={saving} onClick={doSave}>Confirm</button>
               <button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button>
             </div>
           </div>

@@ -10,12 +10,10 @@ import { DB, CATEGORY_LABEL } from '../db';
 import type { Subscription } from '../types';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht2 } from '../ui';
 import AddServiceForm from './AddServiceForm';
+import { fmtDateTH } from '../lib/date';
 
-const thDate = (iso: string) => {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso
-    : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
-};
+/* [B6] แสดงวันที่ตามเวลาไทย + วันครบกำหนดถัดไป */
+const thDate = (iso: string) => fmtDateTH(iso);
 
 export default function SubDetailPage() {
   const { id = '' } = useParams();
@@ -94,7 +92,8 @@ export default function SubDetailPage() {
           <div className="dash-card" style={{ marginTop: 20 }}>
             <div className="dash-card-title">ข้อมูลรายการ</div>
             <div className="due"><span>หมวดหมู่</span><b>{CATEGORY_LABEL[sub.category]}</b></div>
-            <div className="due" style={{ marginBottom: 0 }}><span>วันเริ่ม/รอบบิล</span><b>{thDate(sub.billing_date)}</b></div>
+            <div className="due"><span>รอบบิล</span><b>{sub._billing_cycle === 'yearly' ? 'รายปี' : `รายเดือน · ทุกวันที่ ${sub._billing_day ?? Number(sub.billing_date.slice(8, 10))}`}</b></div>
+            <div className="due" style={{ marginBottom: 0 }}><span>ครบกำหนดถัดไป</span><b>{thDate(DB.upcomingDue(sub).date)}</b></div>
           </div>
 
           {/* actions */}

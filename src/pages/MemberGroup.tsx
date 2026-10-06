@@ -1,20 +1,27 @@
 /* =====================================================================
    SubSub · กลุ่มที่เข้าร่วม (Member) · pages/MemberGroup.tsx
    ---------------------------------------------------------------------
-   หน้ารายละเอียดกลุ่มฝั่งสมาชิก (อ่านจาก DB จริงด้วย group id)
-   สถานะ derive จาก payment ล่าสุดใน DB → คงอยู่ข้ามการรีเฟรช
-     • pending  (รออนุมัติ)  : รอโฮสต์ตรวจสลิป — ยกเลิกการส่งหลักฐานได้ (กลับไปแก้รูป)
-     • rejected (ถูกปฏิเสธ)  : เลือกได้ 2 ทาง — ส่งสลิปใหม่ / ยกเลิกการสมัครเข้ากลุ่ม
-     • joined   (เข้าร่วมแล้ว): รายชื่อสมาชิก (จ่ายแล้ว/ยังไม่จ่าย) · ส่งสลิปเมื่อ ≤3 วัน
-       (กำลังตรวจสอบ → ยกเลิกการส่งหลักฐานได้) · ปุ่มประสงค์ออกกลุ่ม
+   หน้ารายละเอียดกลุ่มฝั่งสมาชิก — สถานะทั้งหมดมาจาก DB.myBill() (lib/billing.ts)
+   ซึ่งเป็นฟังก์ชันเดียวกับที่หน้า Host ใช้ → สองฝั่งเห็นตรงกันเสมอ [B5]
+     • pending  : แรกเข้า รอโฮสต์ตรวจสลิป (จองที่นั่งแล้ว) — แก้สลิป/ยกเลิกคำขอได้
+     • window   : 3 วันก่อนครบกำหนด → ส่งสลิปรอบใหม่ล่วงหน้าได้          [B3]
+     • due      : ถึงกำหนด (D0–D+4) ยังไม่จ่าย → ส่งสลิปได้
+     • overdue  : ค้างชำระ (D+5–D+9) → การ์ดนับถอยหลัง + Pop-up ทันที   [B2]
+     • settled  : จ่ายรอบนี้แล้ว → ล็อกการส่งซ้ำ เปิดใหม่ 3 วันก่อนรอบหน้า
+     • leaving  : แจ้งออกแล้ว ใช้งานได้ถึงบิลรอบหน้า                     [B13]
+     • ถูกนำออก : แสดงเหตุผล (ค้างชำระ/โฮสต์นำออก/ครบกำหนดออก)
    ===================================================================== */
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DB, priceInfo, dueCountdown } from '../db';
-import type { GroupDetail, BillingInfo, Category } from '../types';
+import { DB, priceInfo, dueText } from '../db';
+import type { GroupDetail, BillStatus, Category } from '../types';
 import { Icon, useToast, NavBar, baht, CATEGORY_ICON } from '../ui';
+import { todayTH } from '../lib/clock';
+import { fmtDateTH, fmtDateTimeTH } from '../lib/date';
+import { DevPanels } from '../dev';
 import {
-  MIcon, BankInfoCard, SlipUploader, BottomSheet, ConfirmBody, ResultOverlay, validateSlip, compressImage,
+  MIcon, BankInfoCard, SlipUploader, BottomSheet, ConfirmBody, ResultOverlay, KickCountdown,
+  validateSlip, compressImage, th2,
 } from './MemberUI';
 
 /* สีพื้นไอคอนหมวดหมู่ (ตามหมวดที่เลือกตอนสร้างกลุ่ม) */
@@ -33,6 +40,19 @@ function Avatar({ name, pic }: { name: string; pic?: string }) {
   return <span className="mrow-av">{pic ? <img src={pic} alt={name} /> : initial(name)}</span>;
 }
 
+type CardState = 'pending' | 'rejected' | 'joined' | 'due' | 'overdue' | 'leaving';
+const STATE_LABEL: Record<CardState, string> = {
+  pending: 'รออนุมัติ', rejected: 'ถูกปฏิเสธ', joined: 'เข้าร่วมแล้ว',
+  due: 'ยังไม่ชำระ', overdue: 'ค้างชำระ', leaving: 'แจ้งออกแล้ว',
+};
+const LEFT_REASON: Record<string, string> = {
+  overdue: 'ค้างชำระเกิน 10 วัน ระบบจึงนำคุณออกจากกลุ่มอัตโนมัติ',
+  host: 'โฮสต์นำคุณออกจากกลุ่ม',
+  left: 'ครบกำหนดตามที่คุณแจ้งประสงค์ออกจากกลุ่ม',
+  closed: 'โฮสต์ปิดกลุ่มนี้แล้ว',
+  cancelled: 'คุณยกเลิกคำขอเข้าร่วมกลุ่มนี้แล้ว',
+};
+
 export default function MemberGroup() {
   const { id: routeId } = useParams();
   const navigate = useNavigate();
@@ -40,17 +60,23 @@ export default function MemberGroup() {
 
   const [gid, setGid] = useState<string>('');
   const [g, setG] = useState<GroupDetail | null>(null);
-  const [bill, setBill] = useState<BillingInfo | null>(null);
+  const [bill, setBill] = useState<BillStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   const [slip, setSlip] = useState<File | null>(null);
+  const [uploaderKey, setUploaderKey] = useState(0);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
-  const [leaveDone, setLeaveDone] = useState(false);
+  const [leaveDone, setLeaveDone] = useState<string | null>(null);
+  const [overduePopup, setOverduePopup] = useState(false);
 
   const reload = useCallback(async (targetId: string) => {
-    setG(await DB.getGroup(targetId));
-    setBill(DB.billingInfo(targetId));
+    const detail = await DB.getGroup(targetId);
+    const b = DB.myBill(targetId);
+    setG(detail);
+    setBill(b);
     setLoading(false);
+    return b;
   }, []);
 
   useEffect(() => {
@@ -61,14 +87,19 @@ export default function MemberGroup() {
         target = mine[0]?.group_id || '';
       }
       setGid(target);
-      if (target) await reload(target); else setLoading(false);
+      if (!target) { setLoading(false); return; }
+      const b = await reload(target);
+      // [B2] เข้าหน้ากลุ่มขณะค้างชำระ → Pop-up เตือนให้จ่ายทันที
+      if (b?.phase === 'overdue') setOverduePopup(true);
     })();
   }, [routeId, reload]);
 
   if (loading) {
     return <div className="phone"><main className="mscreen"><div className="skel" style={{ height: 160, marginTop: 20 }} /></main></div>;
   }
-  if (!g || !gid) {
+
+  const ended = gid ? DB.myMembershipEnd(gid) : null;
+  if (!g || !gid || !bill) {
     return (
       <div className="phone">
         <header className="topbar">
@@ -76,98 +107,97 @@ export default function MemberGroup() {
           <h1>รายละเอียดกลุ่ม</h1>
         </header>
         <main className="mscreen">
-          <div className="empty" style={{ minHeight: 240 }}><p>ยังไม่พบกลุ่มที่คุณเข้าร่วม</p></div>
+          {ended ? (
+            <div className="mdue over" style={{ marginTop: 24 }}>
+              <div className="mdue-top">{MIcon.alert}<span>คุณไม่ได้เป็นสมาชิกกลุ่มนี้แล้ว</span></div>
+              <span className="mdue-sub">
+                {LEFT_REASON[ended.reason] ?? 'คุณออกจากกลุ่มแล้ว'} · มีผล {fmtDateTH(ended.date)}
+                {ended.depositForfeited ? ' · เงินประกันถูกใช้เป็นค่าบริการรอบที่ค้าง' : ''}
+              </span>
+            </div>
+          ) : (
+            <div className="empty" style={{ minHeight: 240 }}><p>ยังไม่พบกลุ่มที่คุณเข้าร่วม</p></div>
+          )}
         </main>
         <NavBar current="group" />
+        {toast}
       </div>
     );
   }
 
   const me = DB.me();
-  const meActive = g.members.find(m => m.user_id === me.user_id);
-  const mePending = g.requests.find(m => m.user_id === me.user_id);
-  const isPending = !meActive && !!mePending;
-
-  const payStatus = DB.myPaymentStatus(gid);   // 'Verified' | 'Waiting' | 'Rejected' | null
-  const waiting = payStatus === 'Waiting';
-  const rejected = payStatus === 'Rejected';
-  const isLeaving = !!meActive?.leaving;
-  const leaveEff = DB.myLeaveEffective(gid);
+  const today = todayTH();
+  const isPending = bill.phase === 'pending';
+  const waiting = bill.slip === 'Waiting';
+  const rejected = bill.slip === 'Rejected';
+  const isLeaving = !!g.members.find(m => m.user_id === me.user_id)?.leaving;
   const oweFull = DB.myOweFull(gid);
-  const cardState: 'pending' | 'rejected' | 'joined' | 'leaving' =
-    meActive ? (isLeaving ? 'leaving' : 'joined') : (rejected ? 'rejected' : 'pending');
-  const STATE_LABEL = { pending: 'รออนุมัติ', rejected: 'ถูกปฏิเสธ', joined: 'เข้าร่วมแล้ว', leaving: 'กำลังจะออก' } as const;
-  const fmtDate = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }) : '-';
+  const reminder = DB.myReminder(gid);
+  const latestSlip = DB.myLatestSlip(gid);
 
-  const info = priceInfo(g);
+  const cardState: CardState =
+    isPending ? (rejected ? 'rejected' : 'pending')
+      : bill.phase === 'overdue' ? 'overdue'
+        : bill.phase === 'due' ? 'due'
+          : isLeaving ? 'leaving' : 'joined';
+
+  const info = priceInfo(g, today);
   const slots = Math.max(1, info.slotsNow);
   const share = info.now / slots;
-  const seatsUsed = g.members.filter(m => m.status === 'Active').length;
 
-  const myPaid = meActive ? DB.paidCurrentCycle(gid) : false;   // จ่ายรอบบิลปัจจุบันแล้ว (กันส่งซ้ำ; เปิดใหม่รอบหน้าเอง)
-  const latestSlip = DB.myLatestSlip(gid);
-  const days = bill ? bill.days_until : 99;
-  const canUpload = days <= 3;
-  const dc = dueCountdown(g.billing_date);   // ข้อความครบกำหนดมาตรฐานเดียว
-
-  /* ---------- actions ---------- */
-  const hostApproveSim = async () => {
-    await DB.approvePayment(gid, me.user_id);
-    await reload(gid);
-    show('โฮสต์อนุมัติแล้ว — คุณเป็นสมาชิกของกลุ่มเรียบร้อย');
+  /* ---------- actions (กันกดซ้ำด้วย busy) ---------- */
+  const guard = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try { await fn(); } finally { setBusy(false); }
   };
-  const hostRejectSim = async () => {
-    await DB.rejectPayment(gid, me.user_id, 'ยอดเงินไม่ตรง');
-    await reload(gid);
-    show('โฮสต์ปฏิเสธสลิป — กรุณาส่งหลักฐานใหม่');
-  };
-  const submitSlip = async () => {
+  const submitSlip = () => guard(async () => {
     const v = validateSlip(slip);
     if (!v.ok) { show(v.reason || 'ไฟล์ไม่ถูกต้อง'); return; }
     const dataUrl = slip ? await compressImage(slip) : '';
-    DB.submitMemberSlip(gid, dataUrl);
-    setSlip(null);
+    if (!dataUrl) { show('อ่านรูปสลิปไม่ได้ กรุณาเลือกรูป JPG/PNG ใหม่'); return; }
+    const r = DB.submitMemberSlip(gid, dataUrl);
+    setSlip(null); setUploaderKey(k => k + 1);
     await reload(gid);
-    show('ส่งหลักฐานแล้ว — รอโฮสต์ตรวจสอบ');
-  };
-  const cancelSlip = async () => {
+    show(r === 'ok' ? 'ส่งหลักฐานแล้ว — รอโฮสต์ตรวจสอบ' : 'ตอนนี้ยังส่งสลิปไม่ได้ (ยังไม่ถึงช่วงชำระ หรือมีสลิปรอตรวจอยู่)');
+  });
+  const cancelSlip = () => guard(async () => {
     DB.cancelSlip(gid);
-    setSlip(null);
+    setSlip(null); setUploaderKey(k => k + 1);
     await reload(gid);
     show('ยกเลิกการส่งหลักฐานแล้ว — อัปโหลดสลิปใหม่ได้เลย');
-  };
-  const cancelJoin = async () => {
+  });
+  const cancelJoin = () => guard(async () => {
     DB.cancelJoin(gid);
-    show('ยกเลิกการสมัครเข้ากลุ่มแล้ว');
+    show('ยกเลิกคำขอเข้ากลุ่มแล้ว — ปล่อยที่นั่งคืนให้กลุ่ม');
     setTimeout(() => navigate('/groups'), 400);
-  };
-  const doLeave = async () => {
+  });
+  const doLeave = () => guard(async () => {
     setLeaveConfirm(false);
-    await DB.requestLeave(gid, me.user_id);
+    const plan = await DB.requestLeave(gid, me.user_id);
     await reload(gid);
-    setTimeout(() => setLeaveDone(true), 200);
-  };
-  const cancelLeave = async () => {
-    await DB.cancelLeave(gid, me.user_id);
+    if (plan) setTimeout(() => setLeaveDone(plan.effective), 200);
+  });
+  const cancelLeave = () => guard(async () => {
+    const r = await DB.cancelLeave(gid, me.user_id);
     await reload(gid);
-    show('ยกเลิกคำขอออกแล้ว — คุณยังเป็นสมาชิกกลุ่มตามปกติ');
-  };
-  /* [DEV] จำลองโฮสต์กด "ขึ้นรอบบิลใหม่" → archive payment เก่า → สถานะจ่ายเงินรีเซ็ตทั้งกลุ่ม */
-  const newCycleSim = async () => {
-    await DB.startNewCycle(gid);
-    await reload(gid);
-    show('โฮสต์ขึ้นรอบบิลใหม่แล้ว — สถานะจ่ายเงินรีเซ็ต ต้องชำระรอบใหม่');
+    show(r.oweFull
+      ? 'ยกเลิกการแจ้งออกแล้ว — รอบถัดไปต้องชำระค่าบริการ + เติมเงินประกันคืน'
+      : 'ยกเลิกการแจ้งออกแล้ว — คุณยังเป็นสมาชิกกลุ่มตามปกติ');
+  });
+  const scrollToUpload = () => {
+    setOverduePopup(false);
+    setTimeout(() => document.getElementById('slip-upload')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   };
 
-
+  /* ---------- blocks ---------- */
   const uploaderBlock = (
-    <>
-      <div style={{ marginTop: 16 }}><SlipUploader key={payStatus || 'new'} onChange={setSlip} /></div>
-      <button className="mbtn green" disabled={!slip} onClick={submitSlip}>
-        {MIcon.shield}ยืนยันการส่งหลักฐาน
+    <div id="slip-upload">
+      <div style={{ marginTop: 16 }}><SlipUploader key={uploaderKey} onChange={setSlip} /></div>
+      <button className="mbtn green" disabled={!slip || busy} onClick={submitSlip}>
+        {MIcon.shield}ยืนยันการส่งหลักฐาน {bill.amount > 0 ? `(${th2(bill.amount)} บาท)` : ''}
       </button>
-    </>
+    </div>
   );
 
   const waitingBlock = (
@@ -178,10 +208,36 @@ export default function MemberGroup() {
           {latestSlip ? <img src={latestSlip} alt="สลิป" /> : <span className="ph">{MIcon.imgph}สลิปที่อัปโหลด</span>}
         </div>
       </div>
-      {/* แก้ไขการส่งหลักฐาน → ลบสลิปเดิม แล้วเลือก/เพิ่มรูปใหม่ (ข้อ 1.3) */}
-      <button className="mcancel" onClick={cancelSlip}>{Icon.edit}แก้ไขการส่งหลักฐาน</button>
+      <button className="mcancel" onClick={cancelSlip} disabled={busy}>{Icon.edit}แก้ไขการส่งหลักฐาน</button>
     </>
   );
+
+  const rejectNote = rejected && bill.payment?._reject_reason ? (
+    <div className="mowe">{MIcon.warn}โฮสต์ปฏิเสธสลิปล่าสุด: “{bill.payment._reject_reason}” กรุณาส่งสลิปใหม่</div>
+  ) : null;
+
+  /* ข้อความสถานะการชำระ (ใต้ State) */
+  const dueCard = (() => {
+    if (bill.phase === 'overdue') {
+      return <KickCountdown daysLate={bill.daysLate} kickInDays={bill.kickInDays}
+        kickDate={bill.kickDate ? fmtDateTH(bill.kickDate, { year: false }) : null} waiting={waiting} />;
+    }
+    if (bill.daysUntilDue === null) return null;
+    const dt = dueText(bill.daysUntilDue);
+    return (
+      <div className={'mdue flat' + (dt.urgent ? ' urgent' : '')}>
+        <div className="mdue-top">{Icon.cal}<span>{dt.text}{bill.dueDate ? ` (${fmtDateTH(bill.dueDate, { year: false })})` : ''}</span></div>
+        {bill.phase === 'due' && bill.kickInDays !== null && (
+          <span className="mdue-sub">หากเลยกำหนด 5 วันจะเป็น “ค้างชำระ” และครบ 10 วันจะถูกนำออกจากกลุ่ม ({fmtDateTH(bill.kickDate, { year: false })})</span>
+        )}
+        {bill.phase === 'window' && !waiting && (
+          <span className="mdue-sub">ส่งสลิปของรอบใหม่ล่วงหน้าได้แล้ว</span>
+        )}
+      </div>
+    );
+  })();
+
+  const payable = bill.phase === 'window' || bill.phase === 'due' || bill.phase === 'overdue';
 
   return (
     <div className="phone">
@@ -204,7 +260,7 @@ export default function MemberGroup() {
           </div>
           <div className="mgprice2">
             <div className="col">
-              <div className="k">ราคาเต็ม/เดือน</div>
+              <div className="k">ราคาเต็ม/รอบ</div>
               <div className="full">{baht(info.now)} <span>บาท</span></div>
             </div>
             <div className="col hi">
@@ -216,102 +272,104 @@ export default function MemberGroup() {
 
         {isPending ? (
           /* ================= แรกเข้า (ยังไม่อนุมัติ) ================= */
-          <>
-            <div className="verify">
-              {rejected ? (
-                /* ถูกปฏิเสธ → 2 ทางเลือก: ส่งสลิปใหม่ / ยกเลิกการสมัคร (ไม่ขึ้นข้อความปฏิเสธ) */
-                <>
-                  <div style={{ textAlign: 'center' }}>
-                    <h2 style={{ fontSize: 20 }}>ส่งหลักฐานของคุณอีกครั้ง</h2>
-                    <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
-                  </div>
-                  {uploaderBlock}
-                  <button className="mcancel danger" onClick={cancelJoin}>{MIcon.logout}ยกเลิกการสมัครเข้ากลุ่ม</button>
-                </>
-              ) : waiting ? (
-                <>
-                  <h2>รอการอนุมัติจากโฮสต์</h2>
-                  <p className="sub">โฮสต์กำลังตรวจสอบสลิปของคุณ ระบบจะแจ้งเตือนเมื่อได้รับการอนุมัติ</p>
-                  {waitingBlock}
-                  {import.meta.env.DEV && (
-                    <div className="simrow">
-                      <button className="verify-sim" onClick={hostApproveSim}>▶︎ จำลอง: โฮสต์อนุมัติ</button>
-                      <button className="verify-sim reject" onClick={hostRejectSim}>▶︎ จำลอง: โฮสต์ปฏิเสธ</button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                /* ยกเลิกสลิปแล้ว (ยังอยู่ในคำขอ) → อัปโหลดใหม่ */
-                <>
-                  <div style={{ textAlign: 'center' }}>
-                    <h2 style={{ fontSize: 20 }}>ส่งหลักฐานของคุณ</h2>
-                    <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
-                  </div>
-                  {uploaderBlock}
-                </>
-              )}
-            </div>
-
-          </>
+          <div className="verify">
+            {rejected ? (
+              <>
+                <div style={{ textAlign: 'center' }}>
+                  <h2 style={{ fontSize: 20 }}>ส่งหลักฐานของคุณอีกครั้ง</h2>
+                  <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
+                </div>
+                {rejectNote}
+                <BankInfoCard bankDT={g.bankDT} />
+                {uploaderBlock}
+                <button className="mcancel danger" onClick={cancelJoin} disabled={busy}>{MIcon.logout}ยกเลิกการสมัครเข้ากลุ่ม</button>
+              </>
+            ) : waiting ? (
+              <>
+                <h2>รอการอนุมัติจากโฮสต์</h2>
+                <p className="sub">โฮสต์กำลังตรวจสอบสลิปของคุณ — ที่นั่งของคุณถูกจองไว้แล้ว</p>
+                {waitingBlock}
+              </>
+            ) : (
+              <>
+                <div style={{ textAlign: 'center' }}>
+                  <h2 style={{ fontSize: 20 }}>ส่งหลักฐานของคุณ</h2>
+                  <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
+                </div>
+                <BankInfoCard bankDT={g.bankDT} />
+                {uploaderBlock}
+                <button className="mcancel danger" onClick={cancelJoin} disabled={busy}>{MIcon.logout}ยกเลิกการสมัครเข้ากลุ่ม</button>
+              </>
+            )}
+          </div>
         ) : (
           /* ================= อนุมัติแล้ว (สมาชิก) ================= */
           <>
-            <div className="msechead">สมาชิก (Members) {seatsUsed}/{g.max_slots}</div>
+            {dueCard}
+
+            {reminder && payable && !waiting && (
+              <div className="mowe">{Icon.bell}โฮสต์ส่งการแจ้งเตือนให้ชำระเมื่อ {fmtDateTimeTH(reminder)}</div>
+            )}
+
+            <div className="msechead">สมาชิก (Members) {g.seatsUsed}/{g.max_slots}</div>
             <div className="mroster">
-            {g.members.map(m => {
-              // จ่ายรอบนี้แล้ว หรือ (ยังไม่ถึงช่วงเก็บเงิน + เคยจ่าย/settled) → ถือว่า "จ่ายแล้ว"
-              const paid = m.role === 'Host' || m.leaving
-                || DB.paidCurrentCycleFor(gid, m.user_id)
-                || (!canUpload && DB.isSettled(gid, m.user_id));
-              const isMe = m.user_id === me.user_id;
-              return (
-                <div className="mrow" key={m.member_id}>
-                  <div className="mrow-l">
-                    <Avatar name={m.user.display_name} pic={m.user.pic_user} />
-                    <div>
-                      <b>{m.user.display_name}{isMe ? ' (คุณ)' : ''}</b>
-                      <span className="mrole">{m.role === 'Host' ? 'Host' : isMe ? 'Me' : 'Member'}</span>
+              {g.members.map(m => {
+                // [B4] ใช้สถานะบิลเดียวกับหน้า Host (ไม่เดาจาก payment ล่าสุดอีกแล้ว)
+                const ph = m.bill.phase;
+                const label = m.role === 'Host' ? 'โฮสต์'
+                  : ph === 'overdue' ? 'ค้างชำระ'
+                    : ph === 'due' ? 'ยังไม่จ่าย'
+                      : ph === 'leaving' || m.leaving ? 'แจ้งออก'
+                        : ph === 'window' && m.bill.slip !== 'Waiting' ? 'รอบใหม่'
+                          : m.bill.slip === 'Waiting' && ph !== 'settled' ? 'รอตรวจ'
+                            : 'จ่ายแล้ว';
+                const cls = label === 'ค้างชำระ' ? 'over' : label === 'ยังไม่จ่าย' || label === 'รอบใหม่' ? 'due'
+                  : label === 'แจ้งออก' || label === 'รอตรวจ' ? 'waived' : 'paid';
+                const isMe = m.user_id === me.user_id;
+                return (
+                  <div className="mrow" key={m.member_id}>
+                    <div className="mrow-l">
+                      <Avatar name={m.user.display_name} pic={m.user.pic_user} />
+                      <div>
+                        <b>{m.user.display_name}{isMe ? ' (คุณ)' : ''}</b>
+                        <span className="mrole">{m.role === 'Host' ? 'Host' : isMe ? 'Me' : 'Member'}</span>
+                      </div>
                     </div>
+                    <span className={'mstatus ' + cls}>{label}</span>
                   </div>
-                  <span className={'mstatus ' + (paid ? 'paid' : 'due')}>{paid ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}</span>
-                </div>
-              );
-            })}
+                );
+              })}
+              {g.requests.length > 0 && (
+                <div className="mrow"><span className="mrole">มีผู้ขอเข้ากลุ่มรออนุมัติ {g.requests.length} คน (จองที่นั่งแล้ว)</span></div>
+              )}
             </div>
 
-            <BankInfoCard />
+            <BankInfoCard bankDT={g.bankDT} />
 
-            {isLeaving ? (
-              /* ================= กำลังจะออก (leaving) ================= */
+            {isLeaving && !payable ? (
+              /* ================= แจ้งออกแล้ว ================= */
               <>
                 <div className="mdue leave">
                   <div className="mdue-top">{Icon.cal}<span>คุณแจ้งประสงค์ออกจากกลุ่มแล้ว</span></div>
                   <span className="mdue-sub">
-                    ใช้งานได้ถึง {fmtDate(leaveEff)} · รอบสุดท้ายนี้ไม่ต้องชำระเพิ่ม ระบบนำเงินประกันที่คุณวางไว้ตอนแรกเข้ามาครอบคลุมให้เรียบร้อยแล้ว
+                    ใช้งานได้ถึงบิลรอบหน้า ({fmtDateTH(bill.leaveEffective)}) · ไม่ต้องชำระรอบสุดท้าย
+                    เพราะใช้เงินประกันที่วางไว้ตอนแรกเข้าแทน · ที่นั่งจะว่างในวันนั้น
                   </span>
                 </div>
-                <button className="mcancel" onClick={cancelLeave}>{Icon.back}ยกเลิกคำขอออก — อยู่กลุ่มต่อ</button>
+                <button className="mcancel" onClick={cancelLeave} disabled={busy}>{Icon.back}ยกเลิกการแจ้งออก — อยู่กลุ่มต่อ</button>
               </>
             ) : (
-              /* ================= สมาชิกปกติ (joined) ================= */
               <>
-                {bill && (
-                  <div className={'mdue flat' + (dc.urgent ? ' urgent' : '')}>
-                    <div className="mdue-top">{Icon.cal}<span>{dc.text}</span></div>
-                    {canUpload && !waiting && !rejected && !myPaid && (
-                      <span className="mdue-sub">สามารถอัปโหลดสลิปชำระเงินในรอบถัดไปได้เลย</span>
-                    )}
-                  </div>
-                )}
-
-                {myPaid && !waiting && !rejected ? (
-                  /* จ่ายรอบนี้แล้ว → ปิดการส่งสลิปซ้ำ (req 1) เปิดใหม่รอบถัดไปช่วง ≤3 วัน */
+                {bill.phase === 'settled' ? (
+                  /* จ่ายรอบนี้แล้ว → ปิดการส่งสลิปซ้ำ เปิดใหม่ 3 วันก่อนรอบหน้า */
                   <div className="mpaidbox">
                     <div className="mpaidbox-row">
                       <span className="mpaidbox-ic">{MIcon.check}</span>
                       <b>ชำระรอบนี้เรียบร้อยแล้ว</b>
                     </div>
-                    <span className="mpaidbox-note">ระบบจะเปิดให้ส่งสลิปรอบถัดไปช่วง 3 วันก่อนวันครบกำหนด</span>
+                    <span className="mpaidbox-note">
+                      ระบบจะเปิดให้ส่งสลิปรอบถัดไปตั้งแต่ 3 วันก่อนวันครบกำหนด{bill.dueDate ? ` (${fmtDateTH(bill.dueDate, { year: false })})` : ''}
+                    </span>
                     {latestSlip && (
                       <div className="mpaidbox-slip">
                         <span className="tag">สลิปที่ส่งไปแล้ว</span>
@@ -326,53 +384,43 @@ export default function MemberGroup() {
                       <p className="sub" style={{ marginTop: 4 }}>
                         {waiting
                           ? 'ส่งสลิปแล้ว — รอโฮสต์ตรวจสอบ'
-                          : rejected
-                            ? 'กรุณาแนบสลิปใหม่เพื่อยืนยันการโอนอีกครั้ง'
-                            : canUpload
-                              ? (oweFull ? 'รอบนี้ชำระเต็ม (ค่าบริการ + เติมเงินประกัน) แนบสลิปได้เลย' : 'ใกล้ถึงรอบชำระแล้ว แนบสลิปเพื่อยืนยันการโอนได้เลย')
-                              : 'ยังไม่ถึงกำหนดชำระ ระบบจะเปิดให้ส่งสลิปเมื่อเหลือ ≤ 3 วัน'}
+                          : `ค่าบริการรอบ ${fmtDateTH(bill.target, { year: false })} · ยอด ${th2(bill.amount)} บาท`}
                       </p>
                     </div>
-
+                    {isLeaving && (
+                      <div className="mowe">{MIcon.warn}คุณแจ้งออกแล้ว แต่ยังต้องชำระรอบนี้ให้ครบก่อน (รอบถัดไปใช้เงินประกันแทน)</div>
+                    )}
                     {oweFull && !waiting && (
-                      <div className="mowe">{MIcon.warn}รอบถัดไปต้องชำระเต็ม (ค่าบริการ + เติมเงินประกันคืน) เนื่องจากยกเลิกคำขอออกหลังใช้เงินประกันไปแล้ว</div>
+                      <div className="mowe">{MIcon.warn}รอบนี้ชำระเต็ม (ค่าบริการ + เติมเงินประกันคืน) เนื่องจากยกเลิกการแจ้งออกหลังใช้เงินประกันไปแล้ว</div>
                     )}
-
-                    {waiting ? (
-                      waitingBlock
-                    ) : (rejected || canUpload) ? (
-                      uploaderBlock
-                    ) : (
-                      <div className="sliplocked" style={{ marginTop: 16 }} aria-disabled="true">
-                        <div className="lockhead">{MIcon.upload}<span>ยังไม่ถึงกำหนดส่งสลิป</span></div>
-                        {latestSlip
-                          ? <div className="lockslip"><img src={latestSlip} alt="สลิปล่าสุด" /><span>สลิปเดือนล่าสุด</span></div>
-                          : <div className="lockph">{MIcon.imgph}ยังไม่มีสลิปล่าสุด</div>}
-                      </div>
-                    )}
+                    {rejectNote}
+                    {waiting ? waitingBlock : bill.canUpload ? uploaderBlock : null}
                   </div>
                 )}
 
-                <button className="mleave" onClick={() => setLeaveConfirm(true)}>
-                  แจ้งความประสงค์ออกจากกลุ่ม คลิกที่นี่{MIcon.chevron}
-                </button>
-
-                {import.meta.env.DEV && (
-                  <div className="simrow" style={{ marginTop: 12 }}>
-                    <button className="verify-sim" onClick={newCycleSim}>▶︎ จำลอง: โฮสต์ขึ้นรอบบิลใหม่</button>
-                  </div>
+                {!isLeaving && (
+                  <button className="mleave" onClick={() => setLeaveConfirm(true)}>
+                    แจ้งความประสงค์ออกจากกลุ่ม คลิกที่นี่{MIcon.chevron}
+                  </button>
                 )}
               </>
             )}
           </>
         )}
+
+        {DevPanels && (
+          <Suspense fallback={null}>
+            <DevPanels.MemberGroup groupId={gid} show={show} reload={async () => { await reload(gid); }} />
+          </Suspense>
+        )}
       </main>
 
+      {/* ===== ยืนยันการแจ้งออก [B13] ===== */}
       <BottomSheet open={leaveConfirm} onClose={() => setLeaveConfirm(false)}>
         <ConfirmBody
           tone="danger"
-          title="ยืนยันการออกจากกลุ่ม?"
-          message="เมื่อออกจากกลุ่ม คุณจะยังใช้บริการได้จนสิ้นสุดรอบบิลปัจจุบัน จากนั้นระบบจะนำคุณออกอัตโนมัติ และเงินประกันเป็นไปตามนโยบายของกลุ่ม"
+          title="ยืนยันการแจ้งออกจากกลุ่ม?"
+          message="คุณยังต้องชำระรอบบิลปัจจุบันตามปกติ จากนั้นใช้งานต่อได้ถึงบิลรอบหน้าโดยไม่ต้องจ่ายเพิ่ม (ใช้เงินประกันแทน) แล้วระบบจะนำคุณออกและปล่อยที่นั่งให้อัตโนมัติ — เปลี่ยนใจได้ก่อนถึงวันนั้น"
           confirmLabel="แจ้งออกจากกลุ่ม"
           onConfirm={doLeave}
           onCancel={() => setLeaveConfirm(false)}
@@ -380,12 +428,24 @@ export default function MemberGroup() {
       </BottomSheet>
 
       <ResultOverlay
-        open={leaveDone}
+        open={!!leaveDone}
         variant="success"
         title="แจ้งประสงค์ออกจากกลุ่มแล้ว"
-        message="ระบบแจ้งโฮสต์เรียบร้อยแล้ว คุณยังใช้งานได้จนถึงวันมีผล และรอบสุดท้ายใช้เงินประกันครอบคลุมให้"
-        action={{ label: 'รับทราบ', onClick: () => setLeaveDone(false) }}
-        onClose={() => setLeaveDone(false)}
+        message={`ระบบแจ้งโฮสต์เรียบร้อยแล้ว คุณใช้งานได้ถึง ${fmtDateTH(leaveDone)} (บิลรอบหน้า) โดยรอบสุดท้ายใช้เงินประกันแทน`}
+        action={{ label: 'รับทราบ', onClick: () => setLeaveDone(null) }}
+        onClose={() => setLeaveDone(null)}
+      />
+
+      {/* ===== [B2] Pop-up ค้างชำระ: แสดงทันทีที่เปิดหน้า ===== */}
+      <ResultOverlay
+        open={overduePopup}
+        variant="error"
+        title={`ค้างชำระ ${bill.daysLate} วัน`}
+        message={waiting
+          ? 'คุณส่งสลิปแล้ว กำลังรอโฮสต์ตรวจสอบ'
+          : `กรุณาชำระ ${th2(bill.amount)} บาท ภายใน ${bill.kickInDays ?? 0} วัน (ก่อน ${fmtDateTH(bill.kickDate)}) มิฉะนั้นระบบจะนำคุณออกจากกลุ่มอัตโนมัติ และเงินประกันจะถูกใช้เป็นค่าบริการรอบที่ค้าง`}
+        action={{ label: waiting ? 'รับทราบ' : 'ชำระเงินตอนนี้', onClick: waiting ? () => setOverduePopup(false) : scrollToUpload }}
+        onClose={() => setOverduePopup(false)}
       />
 
       <NavBar current="group" />

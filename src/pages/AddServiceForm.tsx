@@ -10,6 +10,7 @@ import { DB } from '../db';
 import type { Category, Subscription } from '../types';
 import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
+import { billingDayOf } from '../lib/billing';
 
 type Cycle = 'monthly' | 'yearly';
 type Form = { service_name: string; price: string; billing_day: string; billing_date_full: string };
@@ -24,11 +25,11 @@ export default function AddServiceForm({
     ? {
         service_name: editing.service_name,
         price: String(Number(editing.price)),
-        billing_day: String(new Date(editing.billing_date).getDate()),
-        billing_date_full: '',
+        billing_day: String(billingDayOf(editing)),
+        billing_date_full: editing._billing_cycle === 'yearly' ? editing.billing_date : '',
       }
     : EMPTY);
-  const [cycle, setCycle] = useState<Cycle>('monthly');
+  const [cycle, setCycle] = useState<Cycle>(editing?._billing_cycle === 'yearly' ? 'yearly' : 'monthly');
   const [category, setCategory] = useState<Category | ''>(editing ? editing.category : '');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
@@ -66,19 +67,14 @@ export default function AddServiceForm({
   }
 
   async function doSave() {
-    let billing_date: string;
-    if (cycle === 'monthly') {
-      const now = new Date();
-      const day = String(form.billing_day).padStart(2, '0');
-      billing_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${day}`;
-    } else billing_date = form.billing_date_full;
-
+    // [B7] ส่งวันที่ที่เลือก — DB คำนวณวันครบกำหนดแรกจากวันนี้ (เวลาไทย) เอง
     const payload = {
       service_name: form.service_name,
       price: Number(form.price).toFixed(2),
-      billing_date,
       category: category as Category,
       _billing_cycle: cycle,
+      _billing_day: cycle === 'monthly' ? Number(form.billing_day) : Number(form.billing_date_full.slice(8, 10)),
+      ...(cycle === 'yearly' ? { billing_date: form.billing_date_full } : {}),
     };
     if (isEdit && editing) await DB.updateSubscription(editing.sub_id, payload);
     else await DB.addSubscription(payload);

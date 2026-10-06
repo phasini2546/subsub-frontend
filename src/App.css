@@ -837,3 +837,44 @@ body{
 .duechip svg{flex:none;width:14px;height:14px;opacity:.9}
 .duechip.u{background:#FDECEA;color:var(--red-strong);border-color:#F3C6C1;
   font-size:13.5px;font-weight:800}
+/* =====================================================================
+   [B2/B5/B8/B11] รอบบิล · ค้างชำระ · ประวัติสลิป · เครื่องมือ dev
+   ===================================================================== */
+/* ---- Host: pill/แถวสถานะใหม่ ---- */
+.pill.overdue{background:var(--red-strong);cursor:pointer}
+.pill.soon{background:var(--gold-soft);cursor:pointer}
+.pill:disabled{opacity:.6;cursor:default}
+.row-overdue{background:#FFF6F5}
+.who .reminded{display:block;font-size:11px;color:var(--ink-3);margin-top:2px}
+
+/* ---- Host: ประวัติสลิปใน modal ---- */
+.sliphist{margin-top:14px;border-top:1px dashed #E3E3E3;padding-top:12px}
+.sliphist-h{font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:8px}
+.sliphist-row{display:flex;justify-content:space-between;gap:10px;width:100%;border:1px solid #EEE;background:#fff;
+  border-radius:10px;padding:9px 12px;margin-bottom:6px;font-family:inherit;font-size:12.5px;color:var(--ink);cursor:pointer;text-align:left}
+.sliphist-row[aria-pressed="true"]{border-color:var(--gold);background:#FFFBEF}
+
+/* ---- Member: badge/สถานะใหม่ ---- */
+.gbadge-overdue{background:#FDECEA;color:var(--red-strong)}
+.mgbadge.due{background:#FBF3D6;color:#B7860B}
+.mgbadge.overdue{background:#FDECEA;color:var(--red-strong)}
+.mstatus.over{background:var(--red-strong)}
+
+/* ---- Member: การ์ดค้างชำระ + นับถอยหลัง 5→1 ---- */
+.mkick{margin-top:16px;border-radius:14px;padding:14px 16px;background:#FDECEA;border:1.5px solid #F5C9C5;color:var(--red-strong)}
+.mkick-top{display:flex;align-items:center;gap:8px;font-size:15px}
+.mkick-top svg{width:20px;height:20px;flex:none}
+.mkick-sub{margin-top:6px;font-size:12.5px;font-weight:600;line-height:1.55;color:#8E1F1A}
+.mkick-n{font-size:18px;font-weight:800}
+.mkick-steps{display:flex;gap:8px;margin-top:10px}
+.mkick-steps span{flex:1;text-align:center;border-radius:8px;padding:6px 0;font-weight:800;font-size:13px;
+  background:#fff;border:1.5px solid #F5C9C5;color:#E8A29C}
+.mkick-steps span.past{background:#F7D9D6;border-color:#F7D9D6;color:#C9837D;text-decoration:line-through}
+.mkick-steps span.on{background:var(--red-strong);border-color:var(--red-strong);color:#fff;transform:scale(1.08)}
+
+/* ---- DEV: นาฬิกาจำลอง (โหลดเฉพาะตอน dev) ---- */
+.devclock{border:1px solid #E8DDB5;background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.devclock-h{font-size:12px;color:#7A6520;margin-bottom:8px}
+.devclock-h span{color:var(--ink-3)}
+.devclock-btns{display:flex;flex-wrap:wrap;gap:6px}
+.testpanel .devclock-btns button{display:inline-block;width:auto;margin:0;padding:6px 10px;font-size:12px}

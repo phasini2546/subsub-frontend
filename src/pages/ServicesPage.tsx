@@ -6,11 +6,13 @@
    นำทางตามบทบาท: Host → /group/:id (จัดการได้) · Member → /member/group/:id (อ่านอย่างเดียว)
    สีไอคอน/ป้าย แยกตามหมวดหมู่ (ไม่ใช้เขียวทุกหมวด)
    ===================================================================== */
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DB, CATEGORY_LABEL, priceInfo, dueCountdown, cycleMonths } from '../db';
+import { DB, CATEGORY_LABEL, priceInfo, dueText } from '../db';
 import type { GroupRow, Subscription, Category, Role } from '../types';
-import type { MemberCardState } from '../db';
+import type { MemberCardState, MemberGroupRow } from '../db';
+import { todayTH } from '../lib/clock';
+import { DevPanels } from '../dev';
 import { Icon, NavBar, useToast, CATEGORY_ICON, baht2, BrandLogo } from '../ui';
 import AddServiceForm from './AddServiceForm';
 
@@ -32,17 +34,18 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 /* ป้ายสถานะกลุ่ม (อ้างอิงชุดสี state เดียวกับหน้า Member/Host) */
 const STATE_BADGE: Record<GState, { cls: string; text: string }> = {
-  host:     { cls: 'gbadge-active', text: 'ACTIVE' },
-  joined:   { cls: 'gbadge-active', text: 'เข้าร่วมแล้ว' },
-  pending:  { cls: 'gbadge-wait',   text: 'รออนุมัติ' },
-  rejected: { cls: 'gbadge-reject', text: 'ถูกปฏิเสธ' },
-  leaving:  { cls: 'gbadge-leave',  text: 'กำลังจะออก' },
+  host:     { cls: 'gbadge-active',  text: 'ACTIVE' },
+  joined:   { cls: 'gbadge-active',  text: 'เข้าร่วมแล้ว' },
+  due:      { cls: 'gbadge-wait',    text: 'ถึงกำหนดชำระ' },
+  overdue:  { cls: 'gbadge-overdue', text: 'ค้างชำระ' },
+  pending:  { cls: 'gbadge-wait',    text: 'รออนุมัติ' },
+  rejected: { cls: 'gbadge-reject',  text: 'ถูกปฏิเสธ' },
+  leaving:  { cls: 'gbadge-leave',   text: 'แจ้งออกแล้ว' },
 };
 
-/* วันครบกำหนด (มาตรฐานเดียวกับหน้า Member): 'ครบกำหนด อีก N วัน' + urgent (≤3 วัน แดงเข้ม) */
-function dueMeta(billing: string, cycle?: string): DueMeta {
-  return dueCountdown(billing, new Date(), cycleMonths(cycle));
-}
+/* วันครบกำหนด (มาตรฐานเดียวกับหน้า Member) — [B6/B7] คำนวณจากรอบบิลตามเวลาไทย */
+const dueMetaOf = (src: Parameters<typeof DB.upcomingDue>[0]): DueMeta => dueText(DB.upcomingDue(src).days);
+const memberDue = (m: MemberGroupRow): DueMeta => ({ text: m.dueText, urgent: m.dueUrgent, days: m.bill.daysUntilDue ?? 0 });
 
 export default function ServicesPage() {
   const navigate = useNavigate();
@@ -55,57 +58,28 @@ export default function ServicesPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [adding, setAdding] = useState(false);
 
-  /* ---- Dev/Test helpers (ฝั่ง Member) ---- */
-  const resetData = async () => { DB.reset(); await load(); show('รีเซ็ตข้อมูลทดสอบแล้ว'); };
-  const seedDemo = async () => {
-    const { code } = await DB.seedDemoGroup();
-    try { await navigator.clipboard.writeText(code); } catch { /* clipboard blocked */ }
-    await load();
-    show('สร้างกลุ่มสาธิตแล้ว · รหัส ' + code + ' (คัดลอกแล้ว) → ไปหน้าเข้าร่วมกลุ่ม');
-  };
-  const approveMine = async () => {
-    const n = await DB.devApproveMyPending();
-    await load();
-    show(n > 0 ? `จำลองโฮสต์อนุมัติแล้ว ${n} คำขอ — ดูการ์ดในแท็บ MEMBER` : 'ยังไม่มีคำขอที่รออนุมัติ');
-  };
-  const rejectMine = async () => {
-    const n = await DB.devRejectMyLatest();
-    await load();
-    show(n > 0 ? `จำลองโฮสต์ปฏิเสธแล้ว ${n} รายการ — เปิดการ์ดในแท็บ MEMBER เพื่อส่งสลิปใหม่` : 'ไม่มีสลิปที่รอตรวจสอบให้ปฏิเสธ');
-  };
-  const seedMidCycle = async () => {
-    const g = DB.ensureMidCycleDemo();
-    try { await navigator.clipboard.writeText(g.invite_code); } catch { /* clipboard blocked */ }
-    await load();
-    show('สร้างกลุ่มเข้ากลางรอบแล้ว · รหัส ' + g.invite_code + ' (คัดลอกแล้ว) → กรอกที่หน้า ① เพื่อดูการคิดเงินตามวัน');
-  };
-  const expireLeave = async () => {
-    const n = await DB.devExpireMyLeave();
-    await load();
-    show(n > 0 ? `เร่งเวลาให้คำขอออก ${n} กลุ่มครบกำหนด — คุณหลุดกลุ่มและ slot ว่างแล้ว` : 'ยังไม่มีคำขอออกที่รอครบกำหนด');
-  };
-
   const load = useCallback(async () => {
-    setLoading(true);
     const [groups, memberGroups, subs, dash] = await Promise.all([
       DB.getMyGroups(),            // กลุ่มที่ฉันเป็น Host/Member (+role)
       DB.getMemberGroups(),        // สถานะฝั่งสมาชิก (pending/joined/leaving...)
       DB.getMySubscriptions(),     // รายจ่ายส่วนตัว (เดี่ยว)
       DB.getDashboard(),           // ยอดรวมรายปี
     ]);
-    const mState = new Map(memberGroups.map(m => [m.group_id, m.state]));
+    const mRows = new Map(memberGroups.map(m => [m.group_id, m]));
     const groupRows: Row[] = groups.map(g => {
-      const pi = priceInfo(g);                                  // ราคา/ช่องที่มีผลจริง (ตรงกับหน้า Member)
+      const pi = priceInfo(g, todayTH());                       // ราคา/ช่องที่มีผลจริง (ตรงกับหน้า Member)
+      const mr = mRows.get(g.group_id);
       return {
         kind: 'group', id: g.group_id, name: g.service_name, category: g.category,
         amount: pi.now / Math.max(1, pi.slotsNow),              // ส่วนของคุณ (หารต่อหัว)
-        role: g.role, state: g.role === 'Host' ? 'host' : (mState.get(g.group_id) ?? 'pending'),
-        memberCount: g.memberCount, maxSlots: g.max_slots, due: dueMeta(g.billing_date, g._billing_cycle), group: g,
+        role: g.role, state: g.role === 'Host' ? 'host' : (mr?.state ?? 'pending'),
+        memberCount: g.memberCount, maxSlots: g.max_slots,
+        due: mr ? memberDue(mr) : dueMetaOf(g), group: g,
       } as Row;
     });
     const soloRows: Row[] = subs.filter(s => !s.end_date).map(s => ({
       kind: 'solo', id: s.sub_id, name: s.service_name, category: s.category,
-      amount: Number(s.price), due: dueMeta(s.billing_date), sub: s,
+      amount: Number(s.price), due: dueMetaOf(s), sub: s,
     }));
     const all = [...groupRows, ...soloRows];
     setRows(all);
@@ -211,19 +185,10 @@ export default function ServicesPage() {
             ))
           )}
 
-          {!loading && import.meta.env.DEV && (
-            <div className="testpanel" style={{ margin: '26px 0 0' }}>
-              <div className="testpanel-h">🧪 โหมดทดสอบ Member (Dev)</div>
-              <button onClick={() => navigate('/join')}>① เข้าร่วมกลุ่ม — ใช้รหัส DISNEY-99 (เต็ม: NFLX-2026)</button>
-              <button onClick={() => navigate('/member/pay')}>② หน้าชำระเงิน + อัปโหลดสลิป (กลุ่มสาธิต disney)</button>
-              <button onClick={() => navigate('/member/group')}>③ กลุ่มที่เข้าร่วม — รายละเอียด/ส่งสลิป/ออกจากกลุ่ม</button>
-              <button onClick={seedDemo}>④ (DB) สร้างกลุ่มสาธิต + คัดลอกรหัสเชิญ (กรอกที่หน้า ①)</button>
-              <button onClick={approveMine}>⑤ จำลอง: โฮสต์อนุมัติคำขอ (state: เข้าร่วมแล้ว)</button>
-              <button onClick={rejectMine}>⑥ จำลอง: โฮสต์ปฏิเสธสลิปของฉัน (state: ถูกปฏิเสธ)</button>
-              <button onClick={seedMidCycle}>⑦ (DB) กลุ่มเข้ากลางรอบ — ทดสอบคิดเงินตามวัน (400/4)</button>
-              <button onClick={expireLeave}>⑧ จำลอง: ครบกำหนดออกจากกลุ่ม (หลุด + slot ว่าง)</button>
-              <button onClick={resetData}>♻︎ รีเซ็ตข้อมูลทดสอบทั้งหมด</button>
-            </div>
+          {!loading && DevPanels && (
+            <Suspense fallback={null}>
+              <DevPanels.Services show={show} reload={load} />
+            </Suspense>
           )}
         </div>
       </main>

@@ -13,3 +13,5 @@ declare module '*.jpg' {
   const src: string;
   export default src;
 }
+/* [B11] true เฉพาะตอน dev/staging — ตั้งค่าใน vite.config.ts (production = false เสมอ) */
+declare const __DEV_TOOLS__: boolean;

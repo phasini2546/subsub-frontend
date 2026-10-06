@@ -6,7 +6,7 @@
    ===================================================================== */
 import { useRef, useState, type ReactNode } from 'react';
 import { useToast } from '../ui';
-import { payee } from '../memberMock';
+import { splitBankDT } from '../db';
 
 /* ---------- ไอคอนเฉพาะฝั่ง Member ---------- */
 export const MIcon = {
@@ -63,28 +63,34 @@ export const MIcon = {
   ),
 };
 
-/* ---------- การ์ดบัญชีธนาคาร + ปุ่มคัดลอกเลขบัญชี ---------- */
-export function BankInfoCard() {
+/* ---------- การ์ดบัญชีธนาคาร + ปุ่มคัดลอกเลขบัญชี ----------
+   [B1] อ่านบัญชีของ Host จาก group.bankDT ของกลุ่มนั้นจริง (เดิม hardcode จาก memberMock → โอนผิดบัญชีได้) */
+export function BankInfoCard({ bankDT }: { bankDT: string }) {
   const { show, node } = useToast();
+  const acc = splitBankDT(bankDT);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(payee.accountNo.replace(/-/g, '')); } catch { /* clipboard ถูกบล็อก */ }
+    if (!acc.account) return;
+    try { await navigator.clipboard.writeText(acc.account.replace(/-/g, '')); } catch { /* clipboard ถูกบล็อก */ }
     show('คัดลอกเลขบัญชีแล้ว');
   };
+  if (!bankDT.trim()) {
+    return <div className="mowe">{MIcon.warn}โฮสต์ยังไม่ได้ระบุบัญชีรับเงิน กรุณาติดต่อโฮสต์ก่อนโอน</div>;
+  }
   return (
     <div className="bankcard">
       <div className="bankcard-top">
         <span className="bankcard-ic">{MIcon.landmark}</span>
         <div>
-          <b>{payee.bankName}</b>
-          <span>ชื่อบัญชี: {payee.accountName}</span>
+          <b>{acc.bank || 'บัญชีรับเงินของโฮสต์'}</b>
+          <span>ชื่อบัญชี: {acc.holder || '-'}</span>
         </div>
       </div>
       <div className="bankcard-no">
         <div>
           <div className="k">เลขที่บัญชี</div>
-          <div className="v">{payee.accountNo}</div>
+          <div className="v">{acc.account || bankDT}</div>
         </div>
-        <button className="bankcopy" onClick={copy}>{MIcon.copy}คัดลอก</button>
+        {acc.account && <button className="bankcopy" onClick={copy}>{MIcon.copy}คัดลอก</button>}
       </div>
       {node}
     </div>
@@ -102,7 +108,7 @@ export function SlipUploader({ onChange }: { onChange: (f: File | null) => void 
     const file = e.target.files?.[0];
     if (!file) return;
     setName(file.name);
-    setPreview(file.type.startsWith('image/') ? URL.createObjectURL(file) : 'doc');
+    setPreview(URL.createObjectURL(file));
     onChange(file);
   };
   const clear = (e: React.MouseEvent) => {
@@ -114,19 +120,17 @@ export function SlipUploader({ onChange }: { onChange: (f: File | null) => void 
 
   return (
     <div className="slipbox">
-      <input ref={inputRef} type="file" accept="image/png,image/jpeg,application/pdf"
+      <input ref={inputRef} type="file" accept={SLIP_ACCEPT}
         style={{ display: 'none' }} onChange={handleFile} />
       {!preview ? (
         <button type="button" className="slipdrop" onClick={pick}>
           <span className="up">{MIcon.imageup}</span>
           <span className="u1">เลือกรูปภาพสลิปจากเครื่องของคุณ</span>
-          <span className="u2">รองรับไฟล์ JPG, PNG หรือ PDF (สูงสุด 5MB)</span>
+          <span className="u2">รองรับไฟล์ JPG หรือ PNG (สูงสุด {SLIP_MAX_MB}MB)</span>
         </button>
       ) : (
         <div className="slippreview">
-          {preview === 'doc'
-            ? <span className="doc">{MIcon.filecheck}</span>
-            : <img src={preview} alt="สลิป" />}
+          <img src={preview} alt="สลิป" />
           <div className="meta">
             <b>{name || 'slip.jpg'}</b>
             <span>แนบไฟล์เรียบร้อยแล้ว</span>
@@ -220,14 +224,15 @@ export const compressImage = (file: File, max = 900, quality = 0.7): Promise<str
     img.src = url;
   });
 
-/* ---------- ตรวจไฟล์สลิป: ชนิด + ขนาด (ข้อ 4) ---------- */
-export const SLIP_ACCEPT = 'image/jpeg,image/png,application/pdf';
+/* ---------- ตรวจไฟล์สลิป: ชนิด + ขนาด ----------
+   [B8] ตัด PDF ออก: ระบบแปลงสลิปเป็นรูป (data URL) ให้ Host เปิดดูได้ — PDF แปลงไม่ได้ เดิมเลยกลายเป็น /slips/demo.jpg */
+export const SLIP_ACCEPT = 'image/jpeg,image/png';
 export const SLIP_MAX_MB = 5;
 export function validateSlip(file: File | null): { ok: boolean; reason?: string } {
   if (!file) return { ok: false, reason: 'กรุณาแนบไฟล์สลิปก่อนส่งหลักฐาน' };
-  const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+  const allowed = ['image/jpeg', 'image/png'];
   if (!allowed.includes(file.type)) {
-    return { ok: false, reason: 'รองรับเฉพาะไฟล์ JPG, PNG หรือ PDF เท่านั้น กรุณาเลือกไฟล์ใหม่' };
+    return { ok: false, reason: 'รองรับเฉพาะไฟล์ JPG หรือ PNG เท่านั้น กรุณาเลือกไฟล์ใหม่' };
   }
   if (file.size > SLIP_MAX_MB * 1024 * 1024) {
     return { ok: false, reason: `ไฟล์มีขนาดใหญ่เกินไป (สูงสุด ${SLIP_MAX_MB}MB) กรุณาเลือกไฟล์ที่เล็กลง` };
@@ -267,3 +272,29 @@ export function InlineResult({
 
 /* ---------- format ยอดเงิน 2 ตำแหน่ง ---------- */
 export const th2 = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+
+/* ---------- [B2] การ์ดค้างชำระ + นับถอยหลังก่อนถูกนำออก (5 → 1) ---------- */
+export function KickCountdown({ daysLate, kickInDays, kickDate, waiting }: {
+  daysLate: number; kickInDays: number | null; kickDate: string | null; waiting: boolean;
+}) {
+  const steps = [5, 4, 3, 2, 1];
+  return (
+    <div className="mkick" role="alert">
+      <div className="mkick-top">{MIcon.warn}<b>ค้างชำระ {daysLate} วัน</b></div>
+      {waiting || kickInDays === null ? (
+        <p className="mkick-sub">ส่งสลิปแล้ว — รอโฮสต์ตรวจสอบ (ระหว่างรอตรวจจะไม่ถูกนำออก)</p>
+      ) : (
+        <>
+          <p className="mkick-sub">
+            {kickInDays > 0
+              ? <>อีก <b className="mkick-n">{kickInDays}</b> วันจะถูกนำออกจากกลุ่มอัตโนมัติ{kickDate ? ` (${kickDate})` : ''}</>
+              : <>ครบกำหนดนำออกวันนี้ กรุณาชำระทันที</>}
+          </p>
+          <div className="mkick-steps" aria-hidden="true">
+            {steps.map(n => <span key={n} className={n === kickInDays ? 'on' : n > (kickInDays ?? 0) ? 'past' : ''}>{n}</span>)}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
