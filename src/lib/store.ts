@@ -31,15 +31,22 @@ export const uuid = (): string =>
   (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID()
     : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 
-/* รหัสเชิญ 8 ตัว รูปแบบ XXXX-XXXX (ตัดตัวที่สับสนง่าย 0/O/1/I) — สุ่มด้วย crypto + กันซ้ำ */
+/* รหัสเชิญ 6 ตัว ตัวอักษร+ตัวเลขผสมกัน กลุ่มเดียว (ตัดตัวที่สับสนง่าย 0/O/1/I) — การันตีมีทั้งตัวอักษรและตัวเลข สุ่มด้วย crypto + กันซ้ำ */
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const CODE_DIGITS = '23456789';
 export function genInviteCode(taken: (code: string) => boolean): string {
+  const pick = (set: string, n: number) => set[n % set.length];
   for (let i = 0; i < 50; i++) {
-    const buf = new Uint32Array(8);
+    const buf = new Uint32Array(6);
     globalThis.crypto.getRandomValues(buf);
-    const s = Array.from(buf, n => CODE_CHARS[n % CODE_CHARS.length]).join('');
-    const code = s.slice(0, 4) + '-' + s.slice(4);
-    if (!taken(code)) return code;
+    const code = Array.from(buf, n => pick(CODE_CHARS, n)).join('');
+    if (/[A-Z]/.test(code) && /[0-9]/.test(code) && !taken(code)) return code;
   }
-  return 'SUB-' + Date.now().toString(36).toUpperCase().slice(-4);
+  // fallback: ประกอบให้มีทั้งตัวอักษรและตัวเลขแน่นอน
+  const b = new Uint32Array(6);
+  globalThis.crypto.getRandomValues(b);
+  const chars = [CODE_LETTERS[b[0] % CODE_LETTERS.length], CODE_DIGITS[b[1] % CODE_DIGITS.length]];
+  for (let j = 2; j < 6; j++) chars.push(CODE_CHARS[b[j] % CODE_CHARS.length]);
+  return chars.join('');
 }

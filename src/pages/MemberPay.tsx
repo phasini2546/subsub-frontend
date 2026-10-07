@@ -99,11 +99,13 @@ export default function MemberPay() {
               </div>
               <div className="bv">{th2(quote ? quote.firstAmount : 0)} บาท</div>
             </div>
+            {quote && quote.deposit > 0 && (<>
             <div className="brkdiv" />
             <div className="brkrow" style={{ alignItems: 'center' }}>
               <div className="bl">เงินประกัน (Security Deposit)</div>
-              <div className="bv">{th2(quote ? quote.deposit : 0)} บาท</div>
+              <div className="bv">{th2(quote.deposit)} บาท</div>
             </div>
+            </>)}
           </div>
         </div>
 
@@ -114,7 +116,7 @@ export default function MemberPay() {
         )}
 
         {/* บัญชีธนาคารของโฮสต์กลุ่มนี้ [B1] */}
-        {group && <BankInfoCard bankDT={group.bankDT} />}
+        {group && <BankInfoCard bank_name={group.bank_name} bank_account={group.bank_account} account_holder={group.account_holder} />}
 
         {/* ---- ใต้บัญชีธนาคาร: ฟอร์มอัปโหลด หรือ ผลลัพธ์ฝังในหน้า ---- */}
         {phase === 'form' && (

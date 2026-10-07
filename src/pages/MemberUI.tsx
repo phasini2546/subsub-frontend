@@ -6,7 +6,6 @@
    ===================================================================== */
 import { useRef, useState, type ReactNode } from 'react';
 import { useToast } from '../ui';
-import { splitBankDT } from '../db';
 
 /* ---------- ไอคอนเฉพาะฝั่ง Member ---------- */
 export const MIcon = {
@@ -65,15 +64,14 @@ export const MIcon = {
 
 /* ---------- การ์ดบัญชีธนาคาร + ปุ่มคัดลอกเลขบัญชี ----------
    [B1] อ่านบัญชีของ Host จาก group.bankDT ของกลุ่มนั้นจริง (เดิม hardcode จาก memberMock → โอนผิดบัญชีได้) */
-export function BankInfoCard({ bankDT }: { bankDT: string }) {
+export function BankInfoCard({ bank_name, bank_account, account_holder }: { bank_name: string; bank_account: string; account_holder: string }) {
   const { show, node } = useToast();
-  const acc = splitBankDT(bankDT);
   const copy = async () => {
-    if (!acc.account) return;
-    try { await navigator.clipboard.writeText(acc.account.replace(/-/g, '')); } catch { /* clipboard ถูกบล็อก */ }
+    if (!bank_account) return;
+    try { await navigator.clipboard.writeText(bank_account.replace(/-/g, '')); } catch { /* clipboard ถูกบล็อก */ }
     show('คัดลอกเลขบัญชีแล้ว');
   };
-  if (!bankDT.trim()) {
+  if (!bank_account && !bank_name) {
     return <div className="mowe">{MIcon.warn}โฮสต์ยังไม่ได้ระบุบัญชีรับเงิน กรุณาติดต่อโฮสต์ก่อนโอน</div>;
   }
   return (
@@ -81,16 +79,16 @@ export function BankInfoCard({ bankDT }: { bankDT: string }) {
       <div className="bankcard-top">
         <span className="bankcard-ic">{MIcon.landmark}</span>
         <div>
-          <b>{acc.bank || 'บัญชีรับเงินของโฮสต์'}</b>
-          <span>ชื่อบัญชี: {acc.holder || '-'}</span>
+          <b>{bank_name || 'บัญชีรับเงินของโฮสต์'}</b>
+          <span>ชื่อบัญชี: {account_holder || '-'}</span>
         </div>
       </div>
       <div className="bankcard-no">
         <div>
           <div className="k">เลขที่บัญชี</div>
-          <div className="v">{acc.account || bankDT}</div>
+          <div className="v">{bank_account || '-'}</div>
         </div>
-        {acc.account && <button className="bankcopy" onClick={copy}>{MIcon.copy}คัดลอก</button>}
+        {bank_account && <button className="bankcopy" onClick={copy}>{MIcon.copy}คัดลอก</button>}
       </div>
       {node}
     </div>

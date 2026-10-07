@@ -15,7 +15,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DB, priceInfo, dueText } from '../db';
 import type { GroupDetail, BillStatus, Category } from '../types';
-import { Icon, useToast, NavBar, baht, CATEGORY_ICON } from '../ui';
+import { Icon, useToast, NavBar, baht, CategoryIcon } from '../ui';
 import { todayTH } from '../lib/clock';
 import { fmtDateTH, fmtDateTimeTH } from '../lib/date';
 import { DevPanels } from '../dev';
@@ -131,7 +131,7 @@ export default function MemberGroup() {
   const waiting = bill.slip === 'Waiting';
   const rejected = bill.slip === 'Rejected';
   const isLeaving = !!g.members.find(m => m.user_id === me.user_id)?.leaving;
-  const oweFull = DB.myOweFull(gid);
+  const canCancel = DB.canCancelLeave(gid);
   const reminder = DB.myReminder(gid);
   const latestSlip = DB.myLatestSlip(gid);
 
@@ -181,9 +181,9 @@ export default function MemberGroup() {
   const cancelLeave = () => guard(async () => {
     const r = await DB.cancelLeave(gid, me.user_id);
     await reload(gid);
-    show(r.oweFull
-      ? 'ยกเลิกการแจ้งออกแล้ว — รอบถัดไปต้องชำระค่าบริการ + เติมเงินประกันคืน'
-      : 'ยกเลิกการแจ้งออกแล้ว — คุณยังเป็นสมาชิกกลุ่มตามปกติ');
+    show(r === 'ok' ? 'ยกเลิกการแจ้งออกแล้ว — คุณยังเป็นสมาชิกกลุ่มตามปกติ'
+      : r === 'expired' ? 'เลยกำหนด 7 วันแล้ว ยกเลิกการแจ้งออกไม่ได้'
+        : 'ไม่พบการแจ้งออก');
   });
   const scrollToUpload = () => {
     setOverduePopup(false);
@@ -251,7 +251,7 @@ export default function MemberGroup() {
         <div className="mghero">
           <div className="mghero-top">
             <span className="mghero-logo" style={{ background: CAT_COLOR[g.category], fontSize: 30 }}>
-              {CATEGORY_ICON[g.category] || '📦'}
+              <CategoryIcon category={g.category} />
             </span>
             <div>
               <h2>{g.service_name}</h2>
@@ -280,7 +280,7 @@ export default function MemberGroup() {
                   <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
                 </div>
                 {rejectNote}
-                <BankInfoCard bankDT={g.bankDT} />
+                <BankInfoCard bank_name={g.bank_name} bank_account={g.bank_account} account_holder={g.account_holder} />
                 {uploaderBlock}
                 <button className="mcancel danger" onClick={cancelJoin} disabled={busy}>{MIcon.logout}ยกเลิกการสมัครเข้ากลุ่ม</button>
               </>
@@ -296,7 +296,7 @@ export default function MemberGroup() {
                   <h2 style={{ fontSize: 20 }}>ส่งหลักฐานของคุณ</h2>
                   <p className="sub" style={{ marginTop: 4 }}>กรุณาแนบรูปภาพสลิปธนาคารที่เห็นยอดเงินและวันที่ชัดเจน</p>
                 </div>
-                <BankInfoCard bankDT={g.bankDT} />
+                <BankInfoCard bank_name={g.bank_name} bank_account={g.bank_account} account_holder={g.account_holder} />
                 {uploaderBlock}
                 <button className="mcancel danger" onClick={cancelJoin} disabled={busy}>{MIcon.logout}ยกเลิกการสมัครเข้ากลุ่ม</button>
               </>
@@ -344,7 +344,7 @@ export default function MemberGroup() {
               )}
             </div>
 
-            <BankInfoCard bankDT={g.bankDT} />
+            <BankInfoCard bank_name={g.bank_name} bank_account={g.bank_account} account_holder={g.account_holder} />
 
             {isLeaving && !payable ? (
               /* ================= แจ้งออกแล้ว ================= */
@@ -356,7 +356,11 @@ export default function MemberGroup() {
                     เพราะใช้เงินประกันที่วางไว้ตอนแรกเข้าแทน · ที่นั่งจะว่างในวันนั้น
                   </span>
                 </div>
-                <button className="mcancel" onClick={cancelLeave} disabled={busy}>{Icon.back}ยกเลิกการแจ้งออก — อยู่กลุ่มต่อ</button>
+                {canCancel ? (
+                  <button className="mcancel" onClick={cancelLeave} disabled={busy}>{Icon.back}ยกเลิกการแจ้งออก — อยู่กลุ่มต่อ</button>
+                ) : (
+                  <p className="mdue-sub" style={{ textAlign: 'center', marginTop: 8 }}>เลยกำหนด 7 วันหลังแจ้งออกแล้ว — ยกเลิกไม่ได้</p>
+                )}
               </>
             ) : (
               <>
@@ -390,9 +394,6 @@ export default function MemberGroup() {
                     {isLeaving && (
                       <div className="mowe">{MIcon.warn}คุณแจ้งออกแล้ว แต่ยังต้องชำระรอบนี้ให้ครบก่อน (รอบถัดไปใช้เงินประกันแทน)</div>
                     )}
-                    {oweFull && !waiting && (
-                      <div className="mowe">{MIcon.warn}รอบนี้ชำระเต็ม (ค่าบริการ + เติมเงินประกันคืน) เนื่องจากยกเลิกการแจ้งออกหลังใช้เงินประกันไปแล้ว</div>
-                    )}
                     {rejectNote}
                     {waiting ? waitingBlock : bill.canUpload ? uploaderBlock : null}
                   </div>
@@ -420,7 +421,7 @@ export default function MemberGroup() {
         <ConfirmBody
           tone="danger"
           title="ยืนยันการแจ้งออกจากกลุ่ม?"
-          message="คุณยังต้องชำระรอบบิลปัจจุบันตามปกติ จากนั้นใช้งานต่อได้ถึงบิลรอบหน้าโดยไม่ต้องจ่ายเพิ่ม (ใช้เงินประกันแทน) แล้วระบบจะนำคุณออกและปล่อยที่นั่งให้อัตโนมัติ — เปลี่ยนใจได้ก่อนถึงวันนั้น"
+          message="คุณยังต้องชำระรอบบิลปัจจุบันตามปกติ จากนั้นใช้งานต่อได้ถึงบิลรอบหน้าโดยไม่ต้องจ่ายเพิ่ม (ใช้เงินประกันแทน) แล้วระบบจะนำคุณออกและปล่อยที่นั่งให้อัตโนมัติ — เปลี่ยนใจยกเลิกได้ภายใน 7 วันหลังแจ้ง"
           confirmLabel="แจ้งออกจากกลุ่ม"
           onConfirm={doLeave}
           onCancel={() => setLeaveConfirm(false)}
