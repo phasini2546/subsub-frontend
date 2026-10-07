@@ -10,7 +10,7 @@ import { todayTH, nowStamp, DEV_CLOCK_KEY } from '../lib/clock';
 import { addDays, addMonthsKeepDay, parts } from '../lib/date';
 import { memberBillStatus, memberQuote, currentCycleStart } from '../lib/billing';
 import { DB } from '../db';
-import { MOCK_HOST_ACCOUNT, MOCK_HOST_BANKDT, DEMO_CODE, DEMO_FULL_CODE } from './mock';
+import { MOCK_HOST_ACCOUNT, DEMO_CODE, DEMO_FULL_CODE } from './mock';
 
 /* ---------------- รูปสลิปตัวอย่าง (SVG data URL) ---------------- */
 export function sampleSlip(amount: string, fromName = 'สมาชิก'): string {
@@ -51,9 +51,8 @@ function addGroup(o: { name: string; price: number; slots: number; cycleStart: I
   const g: Group = {
     group_id: uuid(), user_id: o.hostId, service_name: o.name,
     total_price: o.price.toFixed(2), max_slots: o.slots, billing_date: anchor,
-    invite_code: o.code, category: o.category, bankDT: MOCK_HOST_BANKDT,
+    invite_code: o.code, category: o.category, bank_name: MOCK_HOST_ACCOUNT.bankName, bank_account: MOCK_HOST_ACCOUNT.accountNo, account_holder: MOCK_HOST_ACCOUNT.accountName,
     _billing_cycle: 'monthly', _billing_day: day, _created_at: anchor, _closed_at: null,
-    _deposit: (o.price / o.slots).toFixed(2),
     _pricing_history: [{ from: '1970-01-01', price: o.price.toFixed(2), max_slots: o.slots }],
   };
   const groups = read<Group>('group'); groups.push(g); write<Group>('group', groups);
@@ -67,10 +66,10 @@ function addMember(gid: string, uid: string, role: Member['role'], status: Membe
   write<Member>('member', members);
 }
 
-function addPayment(p: Omit<Payment, 'payment_id' | 'paid_at' | 'slip_url'> & { name: string }): void {
+function addPayment(p: Omit<Payment, 'payment_id' | 'submitted_at' | 'slip_url'> & { name: string }): void {
   const payments = read<Payment>('payment');
   const { name, ...rest } = p;
-  payments.push({ ...rest, payment_id: uuid(), paid_at: nowStamp(), slip_url: sampleSlip(p.amount, name) });
+  payments.push({ ...rest, payment_id: uuid(), submitted_at: nowStamp(), slip_url: sampleSlip(p.amount, name) });
   write<Payment>('payment', payments);
 }
 
@@ -144,6 +143,22 @@ export async function devRejectMine(groupId?: string): Promise<number> {
   return waiting.length;
 }
 
+/** เมมเบอร์ส่งสลิปใหม่หลังถูกปฏิเสธ — สร้างใบ Waiting ใบใหม่ของรอบเดิม (ใบ Rejected เก็บเป็นประวัติ) */
+export function devResubmitMine(groupId?: string): string | null {
+  const me = DB.me().user_id;
+  const payments = read<Payment>('payment');
+  const members = read<Member>('member');
+  for (const g of read<Group>('group').filter(x => !x._closed_at && (!groupId || x.group_id === groupId))) {
+    const mine = members.find(m => m.group_id === g.group_id && m.user_id === me && !m.left_date && m.role === 'Member');
+    if (!mine) continue;
+    const bill = memberBillStatus(g, mine, payments.filter(x => x.group_id === g.group_id && x.user_id === me), todayTH());
+    if (bill.slip !== 'Rejected' || !bill.canUpload) continue;
+    const r = DB.submitMemberSlip(g.group_id, sampleSlip(bill.amount.toFixed(2), DB.me().display_name));
+    if (r === 'ok') return g.service_name;
+  }
+  return null;
+}
+
 /** เร่งให้คำขอออกของ ME ถึงวันออกจริงทันที */
 export function devExpireMyLeave(): number {
   const members = read<Member>('member');
@@ -188,6 +203,24 @@ export function simMemberPay(groupId: string): string | null {
   return null;
 }
 
+/** สมาชิกคนแรกที่สลิปถูกโฮสต์ปฏิเสธ ส่งสลิปใหม่ (ใช้จากหน้าโฮสต์ — ทดสอบรีวิวสลิปใบใหม่) */
+export function simMemberResubmit(groupId: string): string | null {
+  const g = DB.findGroupById(groupId);
+  if (!g) return null;
+  const users = read<User>('user');
+  const payments = read<Payment>('payment');
+  // รองรับทั้งสลิปรอบบิล (Active) และสลิปแรกเข้า (Pending) — ใช้ _kind/_cycle จากใบที่ถูกปฏิเสธ
+  for (const m of read<Member>('member').filter(x => x.group_id === groupId && !x.left_date && x.role === 'Member' && (x.status === 'Active' || x.status === 'Pending'))) {
+    const bill = memberBillStatus(g, m, payments.filter(p => p.group_id === groupId && p.user_id === m.user_id), todayTH());
+    if (bill.slip !== 'Rejected' || !bill.canUpload || !bill.payment) continue;
+    const rej = bill.payment;
+    const name = users.find(u => u.user_id === m.user_id)?.display_name ?? 'สมาชิก';
+    addPayment({ group_id: groupId, user_id: m.user_id, amount: bill.amount.toFixed(2), status: 'Waiting', _kind: rej._kind, _cycle: rej._cycle ?? (currentCycleStart(g, todayTH()) ?? todayTH()), name });
+    return name;
+  }
+  return null;
+}
+
 /** สมาชิกคนแรกที่ยังไม่แจ้งออก กดแจ้งออก */
 export async function simLeave(groupId: string): Promise<string | null> {
   const users = read<User>('user');
@@ -208,8 +241,8 @@ export function devSeedPrevMonthCompare(dir: 'up' | 'down'): void {
   const g: Group = {
     group_id: uuid(), user_id: uuid(), service_name: 'ทดสอบเทียบเดือน',
     total_price: (cur * slots).toFixed(2), max_slots: slots, billing_date: twoAgo,
-    invite_code: 'PREVDEMO', category: 'Other', bankDT: MOCK_HOST_BANKDT,
-    _billing_cycle: 'monthly', _billing_day: 1, _created_at: twoAgo, _closed_at: null, _deposit: cur.toFixed(2),
+    invite_code: 'PREVDEMO', category: 'Other', bank_name: MOCK_HOST_ACCOUNT.bankName, bank_account: MOCK_HOST_ACCOUNT.accountNo, account_holder: MOCK_HOST_ACCOUNT.accountName,
+    _billing_cycle: 'monthly', _billing_day: 1, _created_at: twoAgo, _closed_at: null,
     _pricing_history: [
       { from: twoAgo, price: (prev * slots).toFixed(2), max_slots: slots },
       { from: start,  price: (cur * slots).toFixed(2),  max_slots: slots },

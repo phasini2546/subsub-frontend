@@ -10,7 +10,7 @@ import { todayTH } from '../lib/clock';
 import { fmtDateTH } from '../lib/date';
 import {
   devClock, devReset, ensureDemoDisney, ensureDemoFull, ensureMidCycleDemo,
-  devApproveMine, devRejectMine, devExpireMyLeave, simJoinRequest, simMemberPay, simLeave,
+  devApproveMine, devRejectMine, devResubmitMine, devExpireMyLeave, simJoinRequest, simMemberPay, simMemberResubmit, simLeave,
   devSeedPrevMonthCompare, devClearPrevMonthCompare,
 } from './devDb';
 import { DEMO_CODE, DEMO_FULL_CODE } from './mock';
@@ -70,6 +70,9 @@ export function ServicesDevPanel(props: DevProps) {
       <button onClick={async () => { const n = await devRejectMine(); await reload(); show(n ? `โฮสต์ปฏิเสธสลิปของคุณ ${n} รายการ` : 'ไม่มีสลิปรอตรวจ'); }}>
         ⑤ จำลอง: โฮสต์ปฏิเสธสลิปที่รอตรวจของฉัน
       </button>
+      <button onClick={async () => { const s = devResubmitMine(); await reload(); show(s ? `ส่งสลิปใหม่ของ ${s} แล้ว — รอโฮสต์ตรวจอีกครั้ง` : 'ยังไม่มีสลิปที่ถูกปฏิเสธให้ส่งใหม่ (กด ⑤ ก่อน)'); }}>
+        ↻ จำลอง: ส่งสลิปใหม่หลังถูกปฏิเสธ
+      </button>
       <button onClick={async () => { const n = devExpireMyLeave(); await reload(); show(n ? 'ถึงวันออกจริงแล้ว — slot ว่าง' : 'ยังไม่มีคำขอออก'); }}>
         ⑥ จำลอง: ถึงวันออกจริงของคำขอออก
       </button>
@@ -89,6 +92,7 @@ export function MemberGroupDevPanel(props: DevProps) {
       <DevClockBar {...props} />
       <button onClick={async () => { const n = await devApproveMine(groupId); await reload(); show(n ? 'โฮสต์อนุมัติแล้ว' : 'ไม่มีสลิปรอตรวจ'); }}>▶︎ โฮสต์อนุมัติสลิปของฉัน</button>
       <button onClick={async () => { const n = await devRejectMine(groupId); await reload(); show(n ? 'โฮสต์ปฏิเสธสลิป — ส่งใหม่ได้' : 'ไม่มีสลิปรอตรวจ'); }}>▶︎ โฮสต์ปฏิเสธสลิปของฉัน</button>
+      <button onClick={async () => { const s = devResubmitMine(groupId); await reload(); show(s ? 'ส่งสลิปใหม่แล้ว — รอโฮสต์ตรวจอีกครั้ง' : 'ยังไม่มีสลิปที่ถูกปฏิเสธให้ส่งใหม่'); }}>▶︎ ส่งสลิปใหม่หลังถูกปฏิเสธ</button>
     </div>
   );
 }
@@ -105,6 +109,9 @@ export function DetailDevPanel(props: DevProps) {
       </button>
       <button onClick={async () => { const n = simMemberPay(groupId); await reload(); show(n ? `${n} ส่งสลิปรอบนี้แล้ว — กด “ตรวจสอบสลิป”` : 'ยังไม่มีใครอยู่ในช่วงส่งสลิป — ลองเลื่อนวัน +'); }}>
         สมาชิกส่งสลิปรอบบิล (คนแรกที่ถึงกำหนด)
+      </button>
+      <button onClick={async () => { const s = simMemberResubmit(groupId); await reload(); show(s ? `${s} ส่งสลิปใหม่แล้ว — กด “ตรวจสอบสลิป” อีกครั้ง` : 'ยังไม่มีสลิปที่ถูกปฏิเสธในกลุ่มนี้ (กดปฏิเสธสลิปในการ์ดสมาชิกก่อน)'); }}>
+        สมาชิกส่งสลิปใหม่ (หลังโฮสต์ปฏิเสธ)
       </button>
       <button onClick={async () => { const n = await simLeave(groupId); await reload(); show(n ? `${n} แจ้งออกแล้ว` : 'ไม่มีสมาชิกให้ทดสอบ'); }}>
         สมาชิกแจ้งประสงค์ออก

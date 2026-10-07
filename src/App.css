@@ -53,7 +53,7 @@ body{
 .gcard:hover{background:#FCFDF8}
 .gcard:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .gtop{display:flex;align-items:flex-start;gap:16px}
-.logo{width:56px;height:56px;border-radius:14px;background:#FBF3D6;display:grid;
+.logo{width:56px;height:56px;border-radius:14px;background:#FFF6D6;color:var(--green);display:grid;
   place-items:center;font-size:24px;flex:none}
 .gname{flex:1;min-width:0}
 .gname b{font-size:18px;font-weight:700;display:block}
@@ -795,10 +795,10 @@ body{
    [Services] การ์ดบริการ: บทบาท/สถานะ/วันครบกำหนด + สีแยกตามหมวดหมู่ (รูป 017)
    ===================================================================== */
 /* สีไอคอน + ป้ายหมวดหมู่ แยกตามหมวด (ยกเลิกเขียวทุกหมวด) */
-.logo.cat-Entertainment{background:#ECE6FF;color:#6C4BD8}
-.logo.cat-Music{background:#FCE4EF;color:#C6407E}
-.logo.cat-Productivity{background:#E2ECFF;color:#2C6FD6}
-.logo.cat-Other{background:#E4F4EC;color:#1F9D6B}
+.logo.cat-Entertainment{background:#FFF6D6;color:var(--green)}
+.logo.cat-Music{background:#FFF6D6;color:var(--green)}
+.logo.cat-Productivity{background:#FFF6D6;color:var(--green)}
+.logo.cat-Other{background:#FFF6D6;color:var(--green)}
 .badge.cat-Entertainment{background:#ECE6FF;color:#6C4BD8}
 .badge.cat-Music{background:#FCE4EF;color:#C6407E}
 .badge.cat-Productivity{background:#E2ECFF;color:#2C6FD6}
@@ -878,3 +878,21 @@ body{
 .devclock-h span{color:var(--ink-3)}
 .devclock-btns{display:flex;flex-wrap:wrap;gap:6px}
 .testpanel .devclock-btns button{display:inline-block;width:auto;margin:0;padding:6px 10px;font-size:12px}
+
+/* ===== หน้าวิธีใช้งาน (HowTo) — การ์ดขั้นตอนแบบมีไอคอน ===== */
+.ht-hero{display:flex;align-items:center;gap:14px;background:#fff;border:1.5px solid var(--green-line);border-radius:16px;padding:16px 18px;margin:0 0 18px}
+.ht-hero-ic{width:48px;height:48px;border-radius:13px;border:1.5px solid var(--green-line);background:transparent;display:grid;place-items:center;flex:none}
+.ht-hero b{font-size:14.5px;color:var(--ink);display:block;line-height:1.3}
+.ht-hero p{font-size:12px;color:var(--ink-2);margin:3px 0 0}
+.ht-flow{border:1.5px solid var(--green-line);border-radius:16px;background:#fff;padding:18px;margin:0 0 14px}
+.ht-flow-h{display:flex;align-items:center;gap:10px;margin:0 0 16px}
+.ht-flow-h h2{font-size:15px;font-weight:700;color:var(--ink);margin:0}
+.ht-tag{font-size:11px;font-weight:700;color:#fff;background:var(--grad);border-radius:999px;padding:4px 11px;flex:none;letter-spacing:.02em}
+.ht-steps{display:flex;flex-direction:column;gap:15px}
+.ht-step{display:flex;align-items:center;gap:13px}
+.ht-ic{width:46px;height:46px;border-radius:13px;border:1.5px solid var(--green-line);background:transparent;display:grid;place-items:center;flex:none}
+.ht-ic.sm{width:40px;height:40px;border-radius:11px}
+.ht-n{flex:none;width:18px;text-align:center;font-size:15px;font-weight:700;color:var(--green);font-style:normal}
+.ht-tx{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.35}
+.ht-tx small{display:block;font-size:11.5px;font-weight:500;color:var(--ink-3);margin-top:2px}
+.ht-note{display:flex;flex-direction:column;gap:12px;border:1.5px solid var(--green-line);border-radius:16px;background:#fff;padding:16px 18px;margin:4px 0 0}

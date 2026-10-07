@@ -85,7 +85,7 @@ export default function CreatePage() {
       billing_day,
       billing_date_full: cycle === 'yearly' ? form.billing_date_full : undefined,
       category: category as Category,
-      bankDT: `${form.bank} ${form.account} ${form.holder}`,
+      bank_name: form.bank, bank_account: form.account, account_holder: form.holder,
       billing_cycle: cycle,   // [M3]
     });
     setConfirm(false);

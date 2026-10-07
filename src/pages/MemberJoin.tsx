@@ -62,7 +62,7 @@ export default function MemberJoin() {
             value={code}
             onChange={e => { setCode(e.target.value); if (error) setError(''); }}
             onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-            placeholder="#XXXX-XXXX"
+            placeholder="XXXXXX"
             className={'codeinput' + (error ? ' invalid' : '')}
           />
           {error && (

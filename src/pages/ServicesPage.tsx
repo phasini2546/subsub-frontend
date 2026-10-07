@@ -13,7 +13,7 @@ import type { GroupRow, Subscription, Category, Role } from '../types';
 import type { MemberCardState, MemberGroupRow } from '../db';
 import { todayTH } from '../lib/clock';
 import { DevPanels } from '../dev';
-import { Icon, NavBar, useToast, CATEGORY_ICON, baht2, BrandLogo } from '../ui';
+import { Icon, NavBar, useToast, CategoryIcon, baht2, BrandLogo } from '../ui';
 import AddServiceForm from './AddServiceForm';
 
 type DueMeta = { text: string; urgent: boolean; days: number };
@@ -154,7 +154,7 @@ export default function ServicesPage() {
                 onClick={() => goto(r)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(r); } }}>
                 <div className="gtop">
-                  <div className={'logo cat-' + r.category}>{CATEGORY_ICON[r.category] || '📦'}</div>
+                  <div className={'logo cat-' + r.category}><CategoryIcon category={r.category} /></div>
                   <div className="gname">
                     <b>{r.name}</b>
                     <div className="svc-tags">

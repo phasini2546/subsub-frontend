@@ -12,7 +12,7 @@ import { todayTH } from '../lib/clock';
 import { fmtDateTH } from '../lib/date';
 import type { MemberGroupRow } from '../db';
 import type { GroupRow, Role } from '../types';
-import { Icon, NavBar, useToast, CATEGORY_ICON, baht, BrandLogo } from '../ui';
+import { Icon, NavBar, useToast, CategoryIcon, baht, BrandLogo } from '../ui';
 
 type TabRole = 'host' | 'member';
 
@@ -87,7 +87,7 @@ export default function GroupsPage() {
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/group/' + g.group_id); } }}
               >
                 <div className="gtop">
-                  <div className={'logo cat-' + g.category}>{CATEGORY_ICON[g.category] || '📦'}</div>
+                  <div className={'logo cat-' + g.category}><CategoryIcon category={g.category} /></div>
                   <div className="gname">
                     <b>{g.service_name}</b>
                     <span className="codechip">
@@ -140,7 +140,7 @@ export default function GroupsPage() {
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/member/group/' + c.group_id); } }}
                 >
                   <div className="gtop">
-                    <div className={'logo cat-' + c.category}>{CATEGORY_ICON[c.category] || '📦'}</div>
+                    <div className={'logo cat-' + c.category}><CategoryIcon category={c.category} /></div>
                     <div className="gname">
                       <b>{c.service_name}</b>
                       <span className="mmeta"><span>สมาชิก {c.memberCount}/{c.max_slots} คน</span></span>

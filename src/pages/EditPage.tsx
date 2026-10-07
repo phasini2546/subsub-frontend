@@ -4,13 +4,12 @@
    แก้ได้ทุก field ยกเว้นรหัสเชิญ (invite_code)
    • เฉพาะ Host ของกลุ่ม (คนอื่นเปิด URL ตรง ๆ จะถูกส่งไปหน้า Member)
    • [B7] ส่ง billing_day (1–31) ไปตรง ๆ — ไม่สร้างสตริงวันที่เองอีก (เดิมได้ '2026-09-31' → เลื่อนเป็น 1 ต.ค.)
-   • [B9] นำออกได้ทั้งสมาชิกและคำขอที่รออนุมัติ → ที่นั่งว่างทันที
    ===================================================================== */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DB, splitBankDT } from '../db';
+import { DB } from '../db';
 import { billingDayOf } from '../lib/billing';
-import type { Category, GroupDetail, MemberWithDetail } from '../types';
+import type { Category, GroupDetail } from '../types';
 import { Icon, useToast, CategoryPicker, ReminderAlert } from '../ui';
 import DatePicker from '../components/DatePicker';
 
@@ -38,8 +37,6 @@ export default function EditPage() {
   const [loading, setLoading] = useState(true);
   const [seatsUsed, setSeatsUsed] = useState(1);   // สมาชิก Active ปัจจุบัน (กัน max_slots ต่ำเกิน)
   const [orig, setOrig] = useState({ price: '', slots: '' });   // ค่าเดิม ไว้เช็คว่าราคา/ช่องเปลี่ยนไหม
-  const [members, setMembers] = useState<MemberWithDetail[]>([]);       // สมาชิกในกลุ่ม (สำหรับจัดการ/นำออก)
-  const [removing, setRemoving] = useState<MemberWithDetail | null>(null); // เป้าหมายที่จะนำออก (ยืนยันก่อน)
 
   /* prefill จากข้อมูลกลุ่มเดิม */
   useEffect(() => {
@@ -48,11 +45,9 @@ export default function EditPage() {
       if (!g) { setLoading(false); return; }
       if (g.user_id !== DB.me().user_id) { navigate('/member/group/' + id, { replace: true }); return; }
       const cyc: Cycle = g._billing_cycle === 'yearly' ? 'yearly' : 'monthly';
-      const bank = splitBankDT(g.bankDT);
       setCycle(cyc);
       setCategory(g.category);
       setSeatsUsed(g.seatsUsed);
-      setMembers([...g.members, ...g.requests]);
       setOrig({ price: String(Number(g.total_price)), slots: String(g.max_slots) });
       setForm({
         service_name: g.service_name,
@@ -60,7 +55,7 @@ export default function EditPage() {
         max_slots: String(g.max_slots),
         billing_day: cyc === 'monthly' ? String(billingDayOf(g)) : '',
         billing_date_full: cyc === 'yearly' ? g.billing_date : '',
-        bank: bank.bank, account: bank.account, holder: bank.holder,
+        bank: g.bank_name, account: g.bank_account, holder: g.account_holder,
       });
       setLoading(false);
     })();
@@ -69,22 +64,6 @@ export default function EditPage() {
   const set = (k: keyof Form, v: string) => {
     setForm(f => ({ ...f, [k]: v }));
     setErrors(e => { const n = { ...e }; delete n[k]; return n; });
-  };
-
-  /* โหลดรายชื่อสมาชิกใหม่หลังนำออก (ไม่แตะฟอร์ม กันข้อมูลที่กำลังแก้หาย) */
-  const reloadMembers = async () => {
-    const g = await DB.getGroup(id);
-    if (g) { setMembers([...g.members, ...g.requests]); setSeatsUsed(g.seatsUsed); }
-  };
-
-  /* โฮสต์นำสมาชิกออกจากกลุ่ม (soft-delete ใส่ left_date — เก็บประวัติไว้คิดยอดย้อนหลัง) */
-  const doRemove = async () => {
-    if (!removing) return;
-    const name = removing.user.display_name;
-    await DB.removeMember(id, removing.user_id);
-    setRemoving(null);
-    await reloadMembers();
-    show('นำ ' + name + ' ออกจากกลุ่มแล้ว — ที่นั่งว่างสำหรับคนใหม่');
   };
 
   /* validation: เหมือนตอนสร้าง + กัน max_slots ต่ำกว่าสมาชิกที่มีอยู่ */
@@ -129,7 +108,7 @@ export default function EditPage() {
       billing_day,
       billing_date_full: cycle === 'yearly' ? form.billing_date_full : undefined,
       category: category as Category,
-      bankDT: `${form.bank} ${form.account} ${form.holder}`,
+      bank_name: form.bank, bank_account: form.account, account_holder: form.holder,
       billing_cycle: cycle,   // [M3]
     });
     setConfirm(false);
@@ -237,26 +216,6 @@ export default function EditPage() {
             {errors.holder && <p className="err">{errors.holder}</p>}
           </div>
 
-          <h3 className="subhead">จัดการสมาชิก</h3>
-          {members.filter(m => m.role !== 'Host').length === 0 ? (
-            <p className="hint" style={{ marginTop: 0 }}>ยังไม่มีสมาชิกอื่นในกลุ่ม</p>
-          ) : (
-            <div className="rows" style={{ marginBottom: 18 }}>
-              {members.filter(m => m.role !== 'Host').map(m => (
-                <div className="row" key={m.member_id}>
-                  <div className={'av' + (m.status === 'Active' ? ' filled' : '')}>{m.status === 'Active' ? null : Icon.person}</div>
-                  <div className="who">
-                    <b>{m.user.display_name}</b>
-                    <span>{m.leaving ? 'แจ้งออกแล้ว' : m.status === 'Pending' ? 'รออนุมัติ (จองที่นั่ง)' : m.bill.phase === 'overdue' ? `ค้างชำระ ${m.bill.daysLate} วัน` : 'สมาชิก'}</span>
-                  </div>
-                  <button type="button" className="pill"
-                    style={{ color: 'var(--red)', border: '1px solid var(--red)', background: '#fff' }}
-                    onClick={() => setRemoving(m)}>นำออก</button>
-                </div>
-              ))}
-            </div>
-          )}
-
           <button type="button" className="btn primary" onClick={askSave}>บันทึกการแก้ไข</button>
           <div style={{ height: 24 }} />
         </div>
@@ -274,23 +233,6 @@ export default function EditPage() {
           </div>
         </div>
       )}
-      {/* ===== ยืนยันนำสมาชิกออก ===== */}
-      {removing && (
-        <div className="veil" onClick={e => { if (e.target === e.currentTarget) setRemoving(null); }}>
-          <div className="modal" style={{ textAlign: 'center' }}>
-            <h3>นำ {removing.user.display_name} ออกจากกลุ่ม?</h3>
-            <p className="sub">
-              ที่นั่งจะว่างทันที สมาชิกจะเห็นข้อความว่าถูกโฮสต์นำออก — ประวัติการจ่ายยังถูกเก็บไว้<br />
-              เรื่องคืน/หักเงินประกัน ให้ตกลงกับสมาชิกเอง ระบบไม่คืนอัตโนมัติ
-            </p>
-            <div className="modal-actions two">
-              <button className="btn ghost" onClick={() => setRemoving(null)}>ยกเลิก</button>
-              <button className="btn solid-danger" onClick={doRemove}>นำออก</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {toast}
     </div>
   );

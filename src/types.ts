@@ -6,7 +6,7 @@
    ---------------------------------------------------------------------
    วันที่ทั้งระบบ:
      • ISODate   = 'YYYY-MM-DD' ตาม "ปฏิทินไทย" (Asia/Bangkok, UTC+7)
-     • timestamp = ISO เต็ม เช่น paid_at (เก็บเป็น UTC แต่แสดงผลเป็นเวลาไทยเสมอ)
+     • timestamp = ISO เต็ม เช่น submitted_at (เก็บเป็น UTC แต่แสดงผลเป็นเวลาไทยเสมอ)
    ===================================================================== */
 
 /* ---------- ค่าคงที่ที่เป็นชุดตายตัว (union type) ---------- */
@@ -41,13 +41,15 @@ export interface Group {
   max_slots: number;
   billing_date: string;     // ISODate — "วันเริ่มรอบบิลแรก" (anchor) คำนวณจากวันที่สร้างกลุ่ม + วันที่ Host เลือก [B7]
   invite_code: string;
+  _invite_cycle?: string;     // [#12] รอบบิลที่รหัสเชิญนี้ใช้ได้ — ขึ้นรอบใหม่ = สุ่มรหัสใหม่ รหัสเก่าใช้ไม่ได้
   category: Category;
-  bankDT: string;
+  bank_name: string;
+  bank_account: string;
+  account_holder: string;
   _billing_cycle?: string;  // [M3] 'monthly' | 'yearly'
   _billing_day?: number;    // [B7] วันที่ตัดรอบที่ Host เลือก (1–31) — ใช้ยึดวันเดิมทุกรอบ ไม่เลื่อน
   _created_at?: string;     // [B7] ISODate วันที่สร้างกลุ่มสำเร็จ
   _closed_at?: string | null; // ปิดกลุ่ม (soft delete) — เก็บประวัติให้ Dashboard
-  _deposit?: string;        // [M6] ยังไม่มีใน schema
   /* [M7/B12] ประวัติราคา/ช่อง — from = ISODate "วันเริ่มรอบบิล" แรกที่ราคานี้มีผล
      (ข้อมูลเก่าแบบ 'YYYY-MM' ยังอ่านได้ — ถือเป็นวันที่ 1 ของเดือน) */
   _pricing_history?: { from: string; price: string; max_slots: number }[];
@@ -65,7 +67,6 @@ export interface Member {
   _leave_at?: string;         // ISODate วันที่กดแจ้งออก
   _leave_effective?: string;  // ISODate วันที่ออกจริง (= วันเริ่มรอบหลังรอบที่ใช้เงินประกัน)
   _waived_cycles?: string[];  // รอบบิลที่ไม่ต้องจ่าย เพราะใช้เงินประกันจ่ายแทน
-  _owe_full?: boolean;        // ยกเลิกออกหลังใช้เงินประกันแล้ว → รอบถัดไปจ่ายค่าบริการ + เติมเงินประกัน
   _reminded_at?: string;      // timestamp ที่ Host กดแจ้งเตือนล่าสุด [B5]
   _removed_reason?: LeftReason; // เหตุผลที่หลุดจากกลุ่ม [B9]
   _deposit_forfeited?: boolean; // ถูกเตะเพราะค้างชำระ → เงินประกันถูกยึดเป็นค่าบริการรอบที่ค้าง
@@ -80,11 +81,11 @@ export interface Payment {
   amount: string;
   slip_url: string;
   status: PaymentStatus;
-  paid_at: string;            // timestamp ที่ส่งสลิป
+  submitted_at: string;            // timestamp ที่ส่งสลิป
   _kind?: 'join' | 'cycle';   // join = แรกเข้า (ค่าบริการเดือนแรก + เงินประกัน), cycle = ค่าบริการรายรอบ
   _cycle?: string;            // ISODate วันเริ่มรอบบิลที่สลิปนี้จ่าย [B2/B3/B12]
   _reject_reason?: string;    // [M5]
-  _reviewed_at?: string;      // timestamp ที่ Host อนุมัติ/ปฏิเสธ
+  reviewed_at?: string;      // timestamp ที่ Host อนุมัติ/ปฏิเสธ
   _archived?: boolean;        // (legacy) ไม่ใช้แล้ว — คงไว้ให้ข้อมูลเก่าอ่านได้
 }
 
@@ -161,7 +162,9 @@ export interface CreateGroupInput {
   billing_day: number;      // [B7] วันที่ 1–31 ที่ Host เลือก (รายปี = วันของ billing_date_full)
   billing_date_full?: string; // รายปี: วันที่ที่เลือกจากปฏิทิน
   category: Category;
-  bankDT: string;
+  bank_name: string;
+  bank_account: string;
+  account_holder: string;
   billing_cycle: string;
 }
 

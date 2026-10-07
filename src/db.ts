@@ -65,10 +65,11 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   Other: 'อื่น ๆ',
 };
 const CATEGORY_ORDER: Category[] = ['Entertainment', 'Music', 'Productivity', 'Other'];
+const LEAVE_CANCEL_WINDOW_DAYS = 7;   // [ใหม่] ยกเลิกการแจ้งออกได้ภายในกี่วันนับจากวันแจ้ง
 
 /* แยก bankDT ("<ธนาคาร> <เลขบัญชี> <ชื่อบัญชี>") กลับเป็น 3 ช่อง — ใช้ทั้งหน้าแก้ไขและการ์ดบัญชีฝั่งสมาชิก [B1]
    best-effort: เลขบัญชี = token แรกที่เป็นตัวเลข/ขีดล้วน — แยกไม่ได้ก็ยัดทั้งก้อนไว้ช่องธนาคาร */
-export function splitBankDT(s: string): { bank: string; account: string; holder: string } {
+function splitBankDT(s: string): { bank: string; account: string; holder: string } {
   const p = (s || '').trim().split(/\s+/).filter(Boolean);
   const idx = p.findIndex(x => /\d/.test(x) && /^[\d-]+$/.test(x));
   if (idx === -1) return { bank: s || '', account: '', holder: '' };
@@ -76,7 +77,7 @@ export function splitBankDT(s: string): { bank: string; account: string; holder:
 }
 
 /* ---------------- helpers ภายใน ---------------- */
-const byNewest = (a: Payment, b: Payment) => (a.paid_at < b.paid_at ? 1 : -1);
+const byNewest = (a: Payment, b: Payment) => (a.submitted_at < b.submitted_at ? 1 : -1);
 const isOpen = (g: Group) => !g._closed_at;
 const userPayments = (all: Payment[], gid: string, uid: string) =>
   all.filter(p => p.group_id === gid && p.user_id === uid).sort(byNewest);
@@ -96,7 +97,7 @@ function release(m: Member, date: ISODate, reason: LeftReason): void {
    ปรับข้อมูลเก่าให้เข้ากับ schema ใหม่ (รันครั้งเดียว)
    ===================================================================== */
 const SCHEMA_KEY = 'subsub_schema_version';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 function migrate(): void {
   let ver = 0;
   try { ver = Number(localStorage.getItem(SCHEMA_KEY) || 0); } catch { /* blocked */ }
@@ -106,6 +107,12 @@ function migrate(): void {
   for (const g of groups) {
     g._billing_day ??= parts(g.billing_date).d;
     g._created_at ??= g.billing_date.slice(0, 10);
+    const anyG = g as unknown as Record<string, unknown>;   // [#7] แตก bankDT เก่า -> 3 ช่อง
+    if (typeof anyG.bankDT === 'string' && anyG.bank_name === undefined) {
+      const b = splitBankDT(anyG.bankDT);
+      anyG.bank_name = b.bank; anyG.bank_account = b.account; anyG.account_holder = b.holder;
+      delete anyG.bankDT;
+    }
     if (g._pricing_history) g._pricing_history = g._pricing_history.map(h => ({ ...h, from: normalizeFrom(h.from) }));
   }
   write<Group>('group', groups);
@@ -113,13 +120,13 @@ function migrate(): void {
   // payment เก่าไม่มี _kind/_cycle → ใบแรกของแต่ละคน = แรกเข้า, ที่เหลือผูกกับรอบที่ใกล้ที่สุด (เผื่อจ่ายล่วงหน้า 3 วัน)
   const payments = read<Payment>('payment');
   const firstSeen = new Set<string>();
-  for (const p of [...payments].sort((a, b) => (a.paid_at < b.paid_at ? -1 : 1))) {
+  for (const p of [...payments].sort((a, b) => (a.submitted_at < b.submitted_at ? -1 : 1))) {
     if (p._kind) continue;
     const key = p.group_id + '|' + p.user_id;
     const g = groups.find(x => x.group_id === p.group_id);
     if (!firstSeen.has(key)) { firstSeen.add(key); p._kind = 'join'; continue; }
     p._kind = 'cycle';
-    if (g) p._cycle = currentCycleStart(g, addDays(toDay(p.paid_at), 3)) ?? g.billing_date;
+    if (g) p._cycle = currentCycleStart(g, addDays(toDay(p.submitted_at), 3)) ?? g.billing_date;
   }
   write<Payment>('payment', payments);
   try { localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION)); } catch { /* blocked */ }
@@ -141,6 +148,19 @@ function reconcile(): void {
   const members = read<Member>('member');
   const payments = read<Payment>('payment');
   let changed = false;
+
+  // [#12] หมุนรหัสเชิญทุกต้นรอบบิล — รหัสเก่าใช้ไม่ได้ทันที
+  let gChanged = false;
+  for (const g of groups) {
+    if (!isOpen(g)) continue;
+    const cs = currentCycleStart(g, today);
+    if (cs && g._invite_cycle !== cs) {
+      g.invite_code = genInviteCode(c => groups.some(x => x.invite_code === c));
+      g._invite_cycle = cs;
+      gChanged = true;
+    }
+  }
+  if (gChanged) write<Group>('group', groups);
 
   for (const m of members) {
     if (m.left_date || m.role === 'Host' || m.status !== 'Active') continue;
@@ -199,13 +219,13 @@ export const DB = {
       max_slots: payload.max_slots,
       billing_date: anchor,
       invite_code: genInviteCode(c => groups.some(x => x.invite_code === c)),
+      _invite_cycle: anchor,
       category: payload.category,
-      bankDT: payload.bankDT,
+      bank_name: payload.bank_name, bank_account: payload.bank_account, account_holder: payload.account_holder,
       _billing_cycle: payload.billing_cycle,
       _billing_day: payload.billing_day,
       _created_at: today,
       _closed_at: null,
-      _deposit: payload.total_price,
       _pricing_history: [{ from: today, price: payload.total_price, max_slots: payload.max_slots }],
     };
     groups.push(group);
@@ -222,7 +242,7 @@ export const DB = {
     return group;
   },
 
-  /* PATCH /api/groups/:id — แก้ข้อมูลกลุ่ม (ไม่แตะ invite_code / _deposit / group_id / user_id) */
+  /* PATCH /api/groups/:id — แก้ข้อมูลกลุ่ม (ไม่แตะ invite_code / group_id / user_id) */
   async updateGroup(id: string, payload: CreateGroupInput): Promise<Group | null> {
     const today = todayTH();
     const groups = read<Group>('group');
@@ -238,7 +258,7 @@ export const DB = {
     g.total_price  = payload.total_price;
     g.max_slots    = payload.max_slots;
     g.category     = payload.category;
-    g.bankDT       = payload.bankDT;
+    g.bank_name = payload.bank_name; g.bank_account = payload.bank_account; g.account_holder = payload.account_holder;
 
     // เปลี่ยนวันตัดรอบ/ประเภทรอบ → anchor ใหม่ เริ่มนับจาก "วันนี้" (รอบที่จ่ายไปแล้วไม่ถูกย้อน)
     const newCycle = payload.billing_cycle;
@@ -339,7 +359,7 @@ export const DB = {
     const q = memberQuote(g, today);
     const payments = read<Payment>('payment');
     payments.push({ payment_id: uuid(), group_id: groupId, user_id: ME.user_id,
-      amount: q.totalDue.toFixed(2), slip_url: slipUrl, status: 'Waiting', paid_at: nowStamp(),
+      amount: q.totalDue.toFixed(2), slip_url: slipUrl, status: 'Waiting', submitted_at: nowStamp(),
       _kind: 'join', _cycle: currentCycleStart(g, today) ?? today });
     write<Payment>('payment', payments);
     return 'ok';
@@ -389,7 +409,7 @@ export const DB = {
     const payments = read<Payment>('payment');
     payments.push({
       payment_id: uuid(), group_id: groupId, user_id: ME.user_id,
-      amount: bill.amount.toFixed(2), slip_url: slipUrl, status: 'Waiting', paid_at: nowStamp(),
+      amount: bill.amount.toFixed(2), slip_url: slipUrl, status: 'Waiting', submitted_at: nowStamp(),
       _kind: bill.phase === 'pending' ? 'join' : 'cycle',
       _cycle: bill.phase === 'pending' ? (bill.payment?._cycle ?? todayTH()) : (bill.target ?? undefined),
     });
@@ -470,9 +490,8 @@ export const DB = {
       // joined_date คงเป็นวันที่ขอเข้า: ยอดแรกเข้าคิดถึงวันก่อนรอบถัดไปของวันนั้น
       // ถ้าโฮสต์อนุมัติช้าจนข้ามรอบ สมาชิกต้องจ่ายรอบใหม่ตามปกติ
     }
-    if (m._owe_full && p._kind === 'cycle') delete m._owe_full;   // จ่ายเต็ม + เติมเงินประกันแล้ว
     p.status = 'Verified';
-    p._reviewed_at = nowStamp();
+    p.reviewed_at = nowStamp();
     write<Payment>('payment', payments);
     write<Member>('member', members);
     return 'ok';
@@ -486,7 +505,7 @@ export const DB = {
     if (p.status !== 'Waiting') return 'not_waiting';
     p.status = 'Rejected';
     p._reject_reason = reason;
-    p._reviewed_at = nowStamp();
+    p.reviewed_at = nowStamp();
     write<Payment>('payment', payments);
     return 'ok';
   },
@@ -516,7 +535,7 @@ export const DB = {
      [MEMBER] แจ้งออก / ยกเลิกการแจ้งออก                             [B9.2]
      ===================================================================== */
 
-  async requestLeave(groupId: string, userId: string): Promise<{ waived: ISODate; effective: ISODate } | null> {
+  async requestLeave(groupId: string, userId: string): Promise<{ waived: ISODate | null; effective: ISODate } | null> {
     const g = DB.findGroupById(groupId);
     const members = read<Member>('member');
     const m = members.find(x => x.group_id === groupId && x.user_id === userId && !x.left_date);
@@ -526,33 +545,30 @@ export const DB = {
     m.leaving = true;
     m._leave_at = today;
     m._leave_effective = plan.effective;
-    m._waived_cycles = [...(m._waived_cycles ?? []).filter(c => c !== plan.waived), plan.waived];
+    if (plan.waived) m._waived_cycles = [...(m._waived_cycles ?? []).filter(c => c !== plan.waived), plan.waived];
     write<Member>('member', members);
     return plan;
   },
 
-  async cancelLeave(groupId: string, userId: string): Promise<{ oweFull: boolean }> {
+  /* ยกเลิกการแจ้งออก — ทำได้ภายใน 7 วันนับจากวันแจ้ง หลังจากนั้นล็อก (กลับเป็นสมาชิกปกติ ไม่ต้องจ่ายเพิ่ม) */
+  async cancelLeave(groupId: string, userId: string): Promise<'ok' | 'expired' | 'not_leaving'> {
     const members = read<Member>('member');
     const m = members.find(x => x.group_id === groupId && x.user_id === userId && !x.left_date);
-    if (!m || !m.leaving) return { oweFull: false };
-    const today = todayTH();
+    if (!m || !m.leaving) return 'not_leaving';
+    if (m._leave_at && diffDays(m._leave_at, todayTH()) > LEAVE_CANCEL_WINDOW_DAYS) return 'expired';
     const waived = (m._waived_cycles ?? []).slice(-1)[0];
-    // เงินประกันถูกใช้ไปแล้วหรือยัง = รอบที่ใช้เงินประกันเริ่มแล้ว
-    const consumed = !!waived && waived <= today;
     m.leaving = false;
     delete m._leave_effective; delete m._leave_at;
-    if (consumed) {
-      m._owe_full = true;                 // รอบถัดไปจ่ายค่าบริการ + เติมเงินประกันคืน
-    } else if (waived) {
-      m._waived_cycles = (m._waived_cycles ?? []).filter(c => c !== waived);   // คืนสิทธิ์เงินประกันเดิม
-    }
+    if (waived) m._waived_cycles = (m._waived_cycles ?? []).filter(c => c !== waived);
     write<Member>('member', members);
-    return { oweFull: consumed };
+    return 'ok';
   },
 
-  myOweFull(groupId: string): boolean {
+  /* ยังยกเลิกการแจ้งออกได้อยู่ไหม (ภายใน 7 วันนับจากวันแจ้ง) — ใช้เปิด/ปิดปุ่มฝั่ง Member */
+  canCancelLeave(groupId: string): boolean {
     const m = read<Member>('member').find(x => x.group_id === groupId && x.user_id === ME.user_id && !x.left_date);
-    return !!m?._owe_full;
+    if (!m?.leaving) return false;
+    return !m._leave_at || diffDays(m._leave_at, todayTH()) <= LEAVE_CANCEL_WINDOW_DAYS;
   },
 
   /* =====================================================================
@@ -593,7 +609,7 @@ export const DB = {
      Subscription ส่วนตัว
      ===================================================================== */
   async getMySubscriptions(): Promise<Subscription[]> {
-    return read<Subscription>('subscription').filter(s => s.user_id === ME.user_id);
+    return read<Subscription>('subscription').filter(s => s.user_id === ME.user_id && !s.end_date);
   },
   async getSubscription(subId: string): Promise<Subscription | null> {
     return read<Subscription>('subscription').find(s => s.sub_id === subId && s.user_id === ME.user_id) ?? null;
@@ -643,6 +659,7 @@ export const DB = {
      Dashboard — ค่าใช้จ่ายต่อหัวตามราคาที่มีผลในแต่ละเดือน (เวลาไทย)
      ===================================================================== */
   async getDashboard(year?: number): Promise<DashboardData> {
+    reconcile();   // [fix] auto-เตะ/auto-ออก ให้ทำงานเมื่อเปิดหน้าภาพรวมด้วย
     const today = todayTH();
     const y = year ?? parts(today).y;
     const groups  = read<Group>('group');

@@ -84,16 +84,12 @@ export function useToast() {
   return { show, node };
 }
 
-/* ---------- map หมวดหมู่ → ไอคอน ---------- */
-export const CATEGORY_ICON: Record<string, string> = {
-  Entertainment: '🎬', Music: '🎵', Productivity: '💼', Other: '📦',
-};
 
 /* ---------- format เงิน ---------- */
 export const baht = (n: string | number) =>
-  Number(n).toLocaleString('th-TH', { minimumFractionDigits: 0 });
+  Number(n).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 export const baht2 = (n: string | number) =>
-  Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+  Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /* ---------- ตัวเลือกหมวดหมู่แบบแถว (ดีไซน์ Figma ใหม่) ---------- */
 const CAT_ICON: Record<Category, ReactNode> = {
   Entertainment: (
@@ -109,6 +105,31 @@ const CAT_ICON: Record<Category, ReactNode> = {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
   ),
 };
+/* ---------- ไอคอนหมวดหมู่ (SVG ไล่เฉดเขียว-ทอง) — ใช้ในการ์ด/หัวข้อ ---------- */
+const CAT_PATHS: Record<Category, ReactNode> = {
+  Entertainment: (<><path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8Z" /><path d="m3.5 8 3-4 3.2 3.4M9.7 3.4l3.2 3.4M15.6 3.1l3 3.5" /></>),
+  Music: (<><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>),
+  Productivity: (<><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></>),
+  Other: (<><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></>),
+};
+export function CategoryIcon({ category }: { category: Category }) {
+  const fillMode = category === 'Other';
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24"
+      fill={fillMode ? 'url(#catGrad)' : 'none'}
+      stroke={fillMode ? 'none' : 'url(#catGrad)'}
+      strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <defs>
+        <linearGradient id="catGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="1.5%" stopColor="#77C200" />
+          <stop offset="99.5%" stopColor="#E5A000" />
+        </linearGradient>
+      </defs>
+      {CAT_PATHS[category] ?? CAT_PATHS.Other}
+    </svg>
+  );
+}
+
 const CAT_ROWS: { key: Category; label: string }[] = [
   { key: 'Entertainment', label: 'บันเทิง' },
   { key: 'Music', label: 'เพลง' },

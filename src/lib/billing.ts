@@ -145,7 +145,7 @@ export function priceInfo(g: Group, today: ISODate): {
 
 export interface MemberQuote {
   share: number;         // ราคาหารต่อหัวเต็มรอบ
-  deposit: number;       // เงินประกัน (= share เต็ม)
+  deposit: number;       // เงินประกัน (รายเดือน = share, รายปี = 0)
   firstAmount: number;   // ค่าบริการรอบแรก (คิดตามสัดส่วนวันถ้าเข้ากลางรอบ)
   totalDue: number;      // ยอดรวมที่ต้องชำระแรกเข้า
   fullPrice: number;     // ราคาเต็มทั้งกลุ่ม
@@ -160,6 +160,7 @@ export interface MemberQuote {
 export function memberQuote(g: Group, today: ISODate): MemberQuote {
   const p = pricingAt(g, today);
   const share = round2(p.price / p.slots);
+  const deposit = cycleMonths(g._billing_cycle) === 12 ? 0 : share;   // [ปรับ] รายปีไม่เก็บเงินประกัน
   const nextDue = nextCycleStart(g, today);
   const prevStart = addMonthsKeepDay(nextDue, -cycleMonths(g._billing_cycle), billingDayOf(g));
   const len = Math.max(1, diffDays(prevStart, nextDue));
@@ -167,7 +168,7 @@ export function memberQuote(g: Group, today: ISODate): MemberQuote {
   const prorated = used < len;
   const firstAmount = prorated ? round2((share / len) * used) : share;
   return {
-    share, deposit: share, firstAmount, totalDue: round2(firstAmount + share),
+    share, deposit, firstAmount, totalDue: round2(firstAmount + deposit),
     fullPrice: p.price, slots: p.slots, prorated, usedDays: used, daysInCycle: len, nextDue,
   };
 }
@@ -188,20 +189,19 @@ export function cycleRequired(m: Member, start: ISODate): boolean {
 /** สลิปของรอบ start (ถ้ามีใบที่ยืนยันแล้วเอาใบนั้น ไม่งั้นใบล่าสุด) */
 export function paymentForCycle(payments: Payment[], start: ISODate): Payment | null {
   const list = payments.filter(p => p._kind !== 'join' && p._cycle === start)
-    .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1));
+    .sort((a, b) => (a.submitted_at < b.submitted_at ? 1 : -1));
   return list.find(p => p.status === 'Verified') ?? list[0] ?? null;
 }
 
 /** สลิปแรกเข้าล่าสุด */
 export function joinPayment(payments: Payment[]): Payment | null {
   return payments.filter(p => p._kind === 'join')
-    .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0] ?? null;
+    .sort((a, b) => (a.submitted_at < b.submitted_at ? 1 : -1))[0] ?? null;
 }
 
-/** ยอดที่ต้องจ่ายของรอบ start (+เติมเงินประกัน ถ้ายกเลิกการออกหลังใช้เงินประกันไปแล้ว) */
-export function cycleAmount(g: Group, m: Member, start: ISODate): number {
-  const s = shareAt(g, start);
-  return round2(m._owe_full ? s * 2 : s);
+/** ยอดที่ต้องจ่ายของรอบ start */
+export function cycleAmount(g: Group, start: ISODate): number {
+  return shareAt(g, start);
 }
 
 const EMPTY = (over: Partial<BillStatus>): BillStatus => ({
@@ -239,8 +239,8 @@ export function memberBillStatus(g: Group, m: Member, payments: Payment[], today
     const late = diffDays(start, today);
     let kickDate = addDays(start, KICK_AFTER_DAYS);
     // สลิปถูกปฏิเสธหลังเลยเส้นตาย → ให้เวลาส่งใหม่อีก 1 วัน (ไม่โดนเตะทันทีที่โฮสต์กดปฏิเสธ)
-    if (p?.status === 'Rejected' && p._reviewed_at) {
-      const grace = addDays(toISODateTH(new Date(p._reviewed_at)), 1);
+    if (p?.status === 'Rejected' && p.reviewed_at) {
+      const grace = addDays(toISODateTH(new Date(p.reviewed_at)), 1);
       if (grace > kickDate) kickDate = grace;
     }
     const waiting = p?.status === 'Waiting';
@@ -251,7 +251,7 @@ export function memberBillStatus(g: Group, m: Member, payments: Payment[], today
       kickInDays: waiting ? null : Math.max(0, diffDays(today, kickDate)),
       kickDate: waiting ? null : kickDate,
       canUpload: !waiting,
-      amount: cycleAmount(g, m, start),
+      amount: cycleAmount(g, start),
       leaveEffective,
     });
   }
@@ -265,14 +265,14 @@ export function memberBillStatus(g: Group, m: Member, payments: Payment[], today
       return EMPTY({
         phase: 'window', slip: p?.status ?? null, payment: p, target: next, dueDate: next,
         daysUntilDue: until, canUpload: p?.status !== 'Waiting',
-        amount: cycleAmount(g, m, next), leaveEffective,
+        amount: cycleAmount(g, next), leaveEffective,
       });
     }
   }
 
   /* 3) จ่ายครบแล้ว → แสดงสลิปที่ยืนยันล่าสุด + วันครบกำหนดถัดไป */
   const lastVerified = payments.filter(p => p.status === 'Verified')
-    .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))[0] ?? null;
+    .sort((a, b) => (a.submitted_at < b.submitted_at ? 1 : -1))[0] ?? null;
   let due: ISODate | null = next;
   if (leaveEffective) {
     // แจ้งออกแล้ว: ไม่มีรอบที่ต้องจ่ายอีก → วันถัดไปที่สำคัญคือวันออกจริง
@@ -284,14 +284,18 @@ export function memberBillStatus(g: Group, m: Member, payments: Payment[], today
     phase: m.leaving && !due ? 'leaving' : 'settled',
     slip: lastVerified ? 'Verified' : null, payment: lastVerified,
     dueDate: due, daysUntilDue: due ? diffDays(today, due) : null,
-    amount: due ? cycleAmount(g, m, due) : 0, leaveEffective,
+    amount: due ? cycleAmount(g, due) : 0, leaveEffective,
   });
 }
 
 /** [B9.2] แจ้งออก: ต้องจ่ายรอบปัจจุบันตามปกติ, รอบถัดไปใช้เงินประกันแทน, ออกจริงวันเริ่มรอบถัดจากนั้น
     ตัวอย่าง (ตัดรอบวันที่ 20): แจ้งออกระหว่าง 20 ม.ค.–19 ก.พ.
       → ต้องจ่ายรอบ 20 ม.ค. / รอบ 20 ก.พ. ใช้เงินประกัน / ใช้งานได้ถึง 20 มี.ค. แล้วถูกนำออก */
-export function planLeave(g: Group, m: Member, payments: Payment[], today: ISODate): { waived: ISODate; effective: ISODate } {
+export function planLeave(g: Group, m: Member, payments: Payment[], today: ISODate): { waived: ISODate | null; effective: ISODate } {
+  if (cycleMonths(g._billing_cycle) === 12) {
+    // รายปีไม่มีเงินประกัน → ใช้ครบปีที่จ่ายแล้ว ออกต้นรอบถัดไป ไม่มีรอบ waived
+    return { waived: null, effective: nextCycleStart(g, today) };
+  }
   let waived = nextCycleStart(g, today);
   // จ่ายรอบถัดไปล่วงหน้าไปแล้ว → เงินประกันใช้กับรอบถัดจากนั้นแทน
   if (paymentForCycle(payments, waived)?.status === 'Verified') waived = nextCycleStart(g, waived);

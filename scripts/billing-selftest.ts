@@ -30,12 +30,12 @@ eq(s('2027-02-24'),['due','2027-02-20',-4,true,6,100],'D+4 still due');
 eq(s('2027-02-25'),['overdue','2027-02-20',-5,true,5,100],'B2 D+5 overdue, kick in 5');
 eq(s('2027-03-01'),['overdue','2027-02-20',-9,true,1,100],'D+9 kick in 1');
 eq(st('2027-03-02').kickDate,'2027-03-02','D+10 kickDate = today');
-const waiting=[{payment_id:'p',status:'Waiting',_kind:'cycle',_cycle:'2027-02-20',paid_at:'2027-02-26T03:00:00Z',amount:'100'}];
+const waiting=[{payment_id:'p',status:'Waiting',_kind:'cycle',_cycle:'2027-02-20',submitted_at:'2027-02-26T03:00:00Z',amount:'100'}];
 eq(s('2027-02-26',waiting),['overdue','2027-02-20',-6,false,null,100],'Waiting -> no kick, no upload');
-const paidEarly=[{payment_id:'p',status:'Verified',_kind:'cycle',_cycle:'2027-02-20',paid_at:'2027-02-18T03:00:00Z',amount:'100'}];
+const paidEarly=[{payment_id:'p',status:'Verified',_kind:'cycle',_cycle:'2027-02-20',submitted_at:'2027-02-18T03:00:00Z',amount:'100'}];
 eq(s('2027-02-21',paidEarly)[0],'settled','paid in window -> settled after start');
 eq(s('2027-03-17',paidEarly),['window','2027-03-20',3,true,null,100],'B3 RENEWAL: next month window opens again');
-const paidLate=[{payment_id:'p',status:'Verified',_kind:'cycle',_cycle:'2027-02-20',paid_at:'2027-02-27T03:00:00Z',amount:'100'}];
+const paidLate=[{payment_id:'p',status:'Verified',_kind:'cycle',_cycle:'2027-02-20',submitted_at:'2027-02-27T03:00:00Z',amount:'100'}];
 eq(s('2027-03-17',paidLate)[0],'window','paid late last month still gets new window (old bug B3)');
 eq(s('2027-03-21',paidLate)[0],'due','unpaid March after due -> due (old bug B2/B4 showed paid/locked)');
 // leave per user example: cycle Jan20, request leave Feb 5 -> must pay? joined Jan 20 so Jan cycle covered. use joined Dec
@@ -46,7 +46,7 @@ eq(plan,{waived:'2027-02-20',effective:'2027-03-20'},'B9.2 leave: waive Feb20, e
 const m2l={...m2,leaving:true,_leave_effective:plan.effective,_waived_cycles:[plan.waived]};
 const b1=memberBillStatus(gl,m2l,[],'2027-02-05');
 eq([b1.phase,b1.target],['overdue','2027-01-20'],'leaving but Jan cycle unpaid -> still overdue (must pay Jan)');
-const janPaid=[{payment_id:'j',status:'Verified',_kind:'cycle',_cycle:'2027-01-20',paid_at:'2027-01-21T03:00:00Z',amount:'100'}];
+const janPaid=[{payment_id:'j',status:'Verified',_kind:'cycle',_cycle:'2027-01-20',submitted_at:'2027-01-21T03:00:00Z',amount:'100'}];
 eq(memberBillStatus(gl,m2l,janPaid,'2027-02-18').phase,'leaving','leaving + Jan paid -> no window for waived Feb');
 eq(memberBillStatus(gl,m2l,janPaid,'2027-03-05').phase,'leaving','during waived cycle -> leaving');
 // pro-rata
@@ -57,3 +57,23 @@ eq(memberQuote(g,'2027-02-20').prorated,false,'join on cycle start = full');
 const gp:any={...g,_pricing_history:[{from:'1970-01',price:'400',max_slots:4},{from:'2027-02-20',price:'600',max_slots:4}]};
 eq([pricingAt(gp,'2027-02-01').price,pricingAt(gp,'2027-02-19').price,pricingAt(gp,'2027-02-20').price],[400,400,600],'B12 price switches at cycle start');
 eq(memberBillStatus(gp,m,[],'2027-02-17').amount,150,'B12 window pays NEW cycle price');
+// ===== ปฏิเสธสลิป -> ส่งใหม่ (reject -> resubmit) =====
+// รอบ ก.พ. 20: ส่งใบ A (Waiting) ที่ D0
+const rA:any={payment_id:'A',status:'Waiting',_kind:'cycle',_cycle:'2027-02-20',submitted_at:'2027-02-20T03:00:00Z',amount:'100'};
+eq(s('2027-02-20',[rA]),['due','2027-02-20',0,false,null,100],'resubmit: A Waiting -> due, ส่งซ้ำไม่ได้, ไม่โดนเตะ');
+eq(memberBillStatus(g,m,[rA],'2027-02-20').payment?.payment_id,'A','resubmit: ใช้ใบ A');
+// โฮสต์ปฏิเสธ A (มี reviewed_at)
+const rAr:any={...rA,status:'Rejected',reviewed_at:'2027-02-21T03:00:00Z'};
+{const b=memberBillStatus(g,m,[rAr],'2027-02-21');
+ eq([b.slip,b.payment?.payment_id,b.canUpload,b.kickInDays!==null&&b.kickInDays>0],['Rejected','A',true,true],'resubmit: ปฏิเสธ A -> ส่งใหม่ได้ + กลับมานับเตะ (ไม่เตะทันที)');}
+// เมมเบอร์ส่งใหม่ B (ใบ A เก็บเป็นประวัติ)
+const rB:any={payment_id:'B',status:'Waiting',_kind:'cycle',_cycle:'2027-02-20',submitted_at:'2027-02-21T06:00:00Z',amount:'100'};
+{const b=memberBillStatus(g,m,[rAr,rB],'2027-02-21');
+ eq([b.slip,b.payment?.payment_id,b.canUpload,b.kickInDays],['Waiting','B',false,null],'resubmit: ส่งใหม่ B -> ใช้ใบล่าสุด B, หยุดส่งซ้ำ+หยุดเตะ (ไม่ค้างที่ใบ Rejected)');}
+// โฮสต์อนุมัติ B -> รอบ ก.พ. ถือว่าชำระแล้ว
+const rBv:any={...rB,status:'Verified'};
+eq(s('2027-02-22',[rAr,rBv])[0],'settled','resubmit: อนุมัติ B -> รอบ ก.พ. settled (ไม่ค้าง)');
+// ปฏิเสธซ้ำได้: ปฏิเสธ B -> ใช้ใบล่าสุด B(Rejected), ส่งใหม่ได้อีก
+const rBr:any={...rB,status:'Rejected',reviewed_at:'2027-02-22T03:00:00Z'};
+{const b=memberBillStatus(g,m,[rAr,rBr],'2027-02-22');
+ eq([b.slip,b.payment?.payment_id,b.canUpload],['Rejected','B',true],'resubmit: ปฏิเสธซ้ำ -> ใช้ใบล่าสุด B + ส่งใหม่ได้อีก');}
