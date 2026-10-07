@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# สแครช/เอาต์พุตชั่วคราวจาก Claude
+src/Claude outputs/

@@ -10,7 +10,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DB, deriveStatus, priceInfo } from '../db';
 import type { GroupDetail, MemberWithDetail, BillingInfo, UiStatus, Payment } from '../types';
-import { Icon, NavBar, useToast, CATEGORY_ICON, baht, baht2 } from '../ui';
+import { Icon, NavBar, useToast, CategoryIcon, baht, baht2 } from '../ui';
 import { todayTH } from '../lib/clock';
 import { fmtDateTH, fmtDateTimeTH } from '../lib/date';
 import { DevPanels } from '../dev';
@@ -170,7 +170,7 @@ export default function DetailPage() {
         <div className="wrap">
           <div className="card hero">
             <div className="hero-top">
-              <div className="logo">{CATEGORY_ICON[g.category] || '📦'}</div>
+              <div className={'logo cat-' + g.category}><CategoryIcon category={g.category} /></div>
               <div>
                 <div className="hero-name">{g.service_name}</div>
                 <div className="status"><i className="dot" /><span>ACTIVE</span></div>
@@ -298,7 +298,7 @@ export default function DetailPage() {
                 {slipView(viewPayment.slip_url)}
                 <div className="slipmeta">
                   <div className="av filled" />
-                  <div className="who"><b>{cycleLabel(viewPayment)}</b><span>อัปโหลดเมื่อ {fmtDateTimeTH(viewPayment.paid_at)}</span></div>
+                  <div className="who"><b>{cycleLabel(viewPayment)}</b><span>อัปโหลดเมื่อ {fmtDateTimeTH(viewPayment.submitted_at)}</span></div>
                   <span className={'pill ' + (viewPayment.status === 'Verified' ? 'paid' : viewPayment.status === 'Waiting' ? 'review' : 'unpaid')}>
                     {PAY_STATUS_TH[viewPayment.status]}
                   </span>

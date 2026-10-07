@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DB, CATEGORY_LABEL } from '../db';
 import type { Subscription } from '../types';
-import { Icon, NavBar, useToast, CATEGORY_ICON, baht2 } from '../ui';
+import { Icon, NavBar, useToast, CategoryIcon, baht2 } from '../ui';
 import AddServiceForm from './AddServiceForm';
 import { fmtDateTH } from '../lib/date';
 
@@ -35,7 +35,7 @@ export default function SubDetailPage() {
   const doDelete = async () => {
     if (!sub) return;
     const name = sub.service_name;
-    await DB.deleteSubscription(sub.sub_id);
+    await DB.endSubscription(sub.sub_id);   // [#11] ลบ = ซ่อน (ใส่ end_date) ยังนับย้อนหลังใน Dashboard
     setConfirmDel(false);
     show('ลบ “' + name + '” แล้ว');
     setTimeout(() => navigate('/service'), 700);
@@ -71,7 +71,7 @@ export default function SubDetailPage() {
           {/* hero */}
           <div className="hero" style={{ background: '#fff', border: '1.5px solid var(--green-line)', borderRadius: 16, padding: 20 }}>
             <div className="hero-top">
-              <div className="logo">{CATEGORY_ICON[sub.category] || '📦'}</div>
+              <div className={'logo cat-' + sub.category}><CategoryIcon category={sub.category} /></div>
               <div>
                 <div className="hero-name">{sub.service_name}</div>
                 <div className="status">
